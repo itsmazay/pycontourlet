@@ -19,13 +19,14 @@
 #    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import numpy as np
-import cython
-import math
+from numpy import (
+    cos, double, empty, fliplr, flipud, floor, hstack, ix_, kaiser, linalg,
+    log2, mean, ones, pi, rot90, shape, sinc, sort, sqrt, std, tile, vstack,
+)
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from scipy import signal
 from scipy.fftpack import fftshift
-import pdb
 
 
 
@@ -1584,6 +1585,9 @@ def extend2(x, ru, rd, cl, cr, extmod):
 
     See also:   FBDEC"""
 
+    # Extension counts come from floor/ceil of filter sizes and arrive as floats;
+    # numpy slicing requires integers.
+    ru, rd, cl, cr = int(ru), int(rd), int(cl), int(cr)
     rx, cx = np.array(x.shape)
 
     def extmodPer():
@@ -1822,10 +1826,10 @@ def qdown(x, type='1r', extmod='per', phase=0):
 
     def type1r():
         z = resamp(x, 1)
-    if phase == 0:
-        y = resamp(z[::2], 2)
-    else:
-        y = resamp(z[1::2, np.r_[1:len(z), 0]], 2)
+        if phase == 0:
+            y = resamp(z[::2], 2)
+        else:
+            y = resamp(z[1::2, np.r_[1:len(z), 0]], 2)
         return y
 
     def type1c():
@@ -2173,94 +2177,46 @@ def resampz(x, type, shift=1):
     return switch.get(type, errhandler)()
 
 
-def resampc(x: cython.double[:, :], type: cython.int, shift: cython.int = 1, extmod='per'):
+def resampc(x, rtype, shift=1, extmod='per'):
     """ RESAMPC Resampling along the column
 
-    y = resampc(x, type, shift, extmod)
+    y = resampc(x, rtype, shift, extmod)
 
     Input:
-    x:  image that is extendable along the column direction
-    type:   either 0 or 1 (0 for shuffering down and 1 for up)
+    x:      image that is extendable along the column direction
+    rtype:  either 0 or 1 (0 for shuffering down and 1 for up)
     shift:  amount of shifts (typically 1)
-    extmod: extension mode:
-    'per'   periodic
-    'ref1'  reflect about the edge pixels
-    'ref2'  reflect, doubling the edge pixels
+    extmod: extension mode (only 'per' is implemented, matching the
+            original resampc.c MEX file in the MATLAB toolbox)
 
     Output:
     y:  resampled image with:
     R1 = [1, shift; 0, 1] or R2 = [1, -shift; 0, 1]"""
 
-    if type != 0 and type != 1:
-        print('The second input (type) must be either 0 or 1')
-        return
+    if rtype != 0 and rtype != 1:
+        raise ValueError('The second input (rtype) must be either 0 or 1')
 
-    if type(extmod) != str:
-        print('EXTMOD arg must be a string')
-        return
+    if not isinstance(extmod, str):
+        raise TypeError('extmod arg must be a string')
 
-    m: cython.int = x.shape[0]
-    n: cython.int  = x.shape[1]
-    y: cython.double[:, :] = np.zeros(x.shape)
-    s: cython.int = shift
+    if extmod != 'per':
+        raise ValueError("Invalid extmod %r (only 'per' is supported)" % extmod)
 
-    i: cython.int
-    j: cython.int
-    k: cython.int
+    m, n = x.shape
+    s = shift
+    y = np.empty_like(x, dtype=float)
 
-    if extmod == 'per':
-        """Resampling column-wise:
-        y[i, j] = x[<i+sj>, j]  if type == 0
-        y[i, j] = x[<i-sj>, j]  if type == 1
-        """
-
-        for j in range(n):
-            # Circular shift in each column
-            if type == 0:
-                k = (s * j) % m
-            else:
-                k = (-s * j) % m
-
-            # Convert to non-negative mod if needed
-
-            if k < 0:
-                k += m
-
-            for i in range(m):
-                if k >= m:
-                    k -= m
-                y[i, j] = x [k, j]
-                k += 1
-
-        """
-        C code
-
-        int i, j, k;
-        for(j = 0; j < n; j++) {
-            /* Circular shift in each column */
-            if(type == 0)
-                k = (s * j) % m;
-            else
-                k = (-s * j) % m;
-
-            /* Convert to non-negative mod if needed */
-
-            if(k < 0)
-                k += m;
-
-            for(i = 0; i < m; i++) {
-                if (k >= m)
-                    k -= m;
-                y(i, j) = x(k, j);
-                k++
-            }
-        }
-      """
-    else:
-        print('Invalid exrmod')
-    # call weave - deprecated in python 3
-    #weave.inline(code, ['m', 'n', 'x', 'y', 's', 'type'],
-    #             type_converters=converters.blitz, compiler='gcc')
+    # Resampling column-wise:
+    #   y[i, j] = x[<i + s*j>_m, j]  if rtype == 0
+    #   y[i, j] = x[<i - s*j>_m, j]  if rtype == 1
+    # Vectorized: for column j, build the index vector once.
+    rows = np.arange(m)
+    for j in range(n):
+        if rtype == 0:
+            idx = (rows + s * j) % m
+        else:
+            idx = (rows - s * j) % m
+        y[:, j] = x[idx, j]
 
     return y
 
@@ -2659,41 +2615,34 @@ def modulate2(x, type, center=np.array([[0, 0]])):
     CENTER especify the origin of modulation as
     floor(size(x)/2)+center(default is [0, 0])"""
 
-    # Size and origin
-    s = np.array([x.shape])
-    o = np.floor(s / 2.0) + center
+    # Size and origin (use plain ints; MATLAB has scalar dims, not 1xN arrays)
+    s0, s1 = x.shape
+    c0, c1 = int(center[0, 0]), int(center[0, 1])
+    o0 = (s0 // 2) + c0
+    o1 = (s1 // 2) + c1
 
-    n1 = np.array([np.arange(0, s[:, 0])]) - o[:, 0]
-    n2 = np.array([np.arange(0, s[:, 1])]) - o[:, 1]
+    n1 = np.arange(s0) - o0  # shape (s0,)
+    n2 = np.arange(s1) - o1  # shape (s1,)
 
     def do_r():
-        m1 = (-1)**n1
-        y = x * tile(m1.T, (1, s[0, 1]))
-
-        return y
+        m1 = (-1.0) ** n1
+        return x * m1[:, np.newaxis]
 
     def do_c():
-        m2 = (-1)**n2
-        y = x * tile(m2, (s[0, 0], 1))
-
-        return y
+        m2 = (-1.0) ** n2
+        return x * m2[np.newaxis, :]
 
     def do_b():
-        m1 = (-1)**n1
-        m2 = (-1)**n2
-        m = m1.T * m2
-        y = x * m
+        m1 = (-1.0) ** n1
+        m2 = (-1.0) ** n2
+        return x * (m1[:, np.newaxis] * m2[np.newaxis, :])
 
-        return y
+    switch = {'r': do_r, 'c': do_c, 'b': do_b}
 
-    def errhandler():
-        print('Invalid input type')
-
-    switch = {'r': do_r,
-              'c': do_c,
-              'b': do_b}
-
-    return switch.get(str.lower(type[0]), errhandler)()
+    key = type[0].lower()
+    if key not in switch:
+        raise ValueError("modulate2 type must start with 'r', 'c', or 'b', got %r" % (type,))
+    return switch[key]()
 
 
 def reverse2(x):
