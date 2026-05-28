@@ -6,6 +6,30 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-28
+
+PATCH release: CI infrastructure fixes and developer-onboarding docs.
+No library code or API changes.
+
+### Fixed
+- CI parity-tests job: `liboctave-dev` package name was wrong on
+  Ubuntu (it's `octave-dev`). Octave's `image()` / `axis()` /
+  `colormap()` / `gcf()` / `get()` calls inside `showpdfb` failed on
+  the headless runner; shadowed them with no-op stubs in
+  `tests/octave/stubs/` that the CI workflow loads ahead of the
+  toolbox path. Drops the gnuplot dep that an earlier fix had added.
+- Octave fixture generator was non-reproducible across runs because
+  `randn`'s state was never seeded. The `rand('state', 42)` call only
+  seeds the `rand` stream; Octave keeps `randn` independent. Now seeds
+  both. Verified that fixtures are bit-exact across regenerations on
+  the same machine.
+
+### Added
+- `python -m venv .venv` setup instructions in README's Install section
+  and a fuller "Development environment" section in CONTRIBUTING.md.
+- v0.0.1 historical tag for the master branch (original Python 2
+  source plus minimal Py3 compat patches), documented in CHANGELOG.
+
 ## [0.2.0] - 2026-05-28
 
 > **Note:** v0.0.1 is the historical tag on the `master` branch capturing
@@ -87,6 +111,7 @@ equivalence to Minh Do and Duncan Po's MATLAB Contourlet Toolbox v2.0.
 - Demo `DEFAULT_NLEVELS` changed to `(2, 3, 4)` from `(0, 0, 4, 5)` for
   sharper coefficient visualization (trade-off: 0.5 dB lower NLA SNR).
 
-[Unreleased]: https://github.com/itsmazay/pycontourlet/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/itsmazay/pycontourlet/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/itsmazay/pycontourlet/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/itsmazay/pycontourlet/releases/tag/v0.2.0
 [0.0.1]: https://github.com/itsmazay/pycontourlet/releases/tag/v0.0.1

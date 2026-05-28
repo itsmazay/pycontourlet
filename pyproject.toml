@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycontourlet"
-version = "0.2.0"
+version = "0.2.1"
 description = "Python 3 port of the MATLAB Contourlet Toolbox by Minh Do and Duncan Po"
 readme = "README.md"
 license = { text = "GPL-2.0-only" }
