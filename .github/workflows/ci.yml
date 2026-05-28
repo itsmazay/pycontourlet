@@ -56,8 +56,7 @@ jobs:
       - name: Install Octave
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            octave octave-dev gnuplot
+          sudo apt-get install -y --no-install-recommends octave octave-dev
 
       - name: Cache MATLAB Contourlet Toolbox
         id: cache-toolbox
@@ -93,9 +92,14 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Generate Octave fixtures
+        # Note: stubs path goes FIRST so the no-op shadows of image/axis/
+        # colormap/gcf/get win against the toolbox/built-ins. Without this,
+        # showpdfb's display calls fail on a headless runner (no fonts /
+        # renderer).
         run: |
           octave --no-gui --eval \
-            "addpath('$HOME/contourlet_toolbox'); \
+            "addpath('tests/octave/stubs'); \
+             addpath('$HOME/contourlet_toolbox'); \
              addpath('tests/octave'); \
              generate_fixtures('tests/fixtures')"
 

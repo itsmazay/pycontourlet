@@ -43,7 +43,11 @@ function generate_fixtures(out_dir)
     % shape-dependent bugs. R<MN> is a fixed random matrix of size MxN.
     X16 = reshape(1:256, 16, 16) / 256;
     X32 = reshape(1:1024, 32, 32) / 1024;
+    % Seed BOTH rand and randn streams: in Octave / older MATLAB they have
+    % independent generators. Without seeding randn, R32/R64/etc. drift
+    % across runs and the parity-test fixtures aren't reproducible.
     rand('state', 42);
+    randn('state', 42);
     R32 = randn(32, 32);
     R16 = randn(16, 16);
     R64 = randn(64, 64);
@@ -364,21 +368,29 @@ end
 function showpdfb_save_fixtures(out_dir, x)
     % Pre-compute showpdfb output for several configurations and save the
     % resulting displayIm matrices for parity testing.
-
-    % MATLAB's showpdfb calls image() / colormap() / axis() at the end.
-    % These need a graphics toolkit. On a headless CI runner without X11,
-    % the default 'qt' toolkit fails ('no graphics toolkits are available').
-    % Force 'gnuplot' which works without a display server.
-    available = available_graphics_toolkits();
-    if any(strcmp(available, 'gnuplot'))
-        graphics_toolkit('gnuplot');
+    %
+    % MATLAB's showpdfb calls image() / axis() / colormap() / get(gcf, ...)
+    % at the end purely to render the result. On a headless CI runner
+    % without a graphics toolkit, those calls fail (no fonts / no
+    % renderer / no display). We don't need the rendering -- we only
+    % need the displayIm matrix the function returns. The stubs in
+    % tests/octave/stubs/ shadow those built-ins with no-ops; this
+    % directory must be added to addpath BEFORE the toolbox path so the
+    % stubs win in function resolution.
+    %
+    % If the stubs aren't on path (i.e. local dev with a working display)
+    % we fall back to opening an invisible figure.
+    if exist('image', 'file') == 2 && ...
+            ~isempty(strfind(which('image'), 'tests/octave/stubs'))
+        % Stubs are active; no figure needed.
+    else
+        set(0, 'DefaultFigureVisible', 'off');
+        fig = figure('Visible', 'off');
+        cleanup_obj = onCleanup(@() close(fig));
     end
-    set(0, 'DefaultFigureVisible', 'off');
 
     nlevs = [2, 3];
     y = pdfbdec(x, '9-7', 'pkva', nlevs);
-    fig = figure('Visible', 'off');
-    cleanup_obj = onCleanup(@() close(fig));
 
     displayIm = showpdfb(y, 'auto2', 'others', 2, 6, 'abs', 1);
     save('-v6', fullfile(out_dir, 'showpdfb_auto2.mat'), 'x', 'displayIm');
