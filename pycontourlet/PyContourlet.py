@@ -1600,32 +1600,34 @@ def extend2(x, ru, rd, cl, cr, extmod):
         return y
 
     def extmodQper_row():
-        rx2 = round(rx / 2.0)
+        # MATLAB round() rounds half away from zero; Python's round() uses
+        # banker's rounding. Use floor((rx+1)/2) to match MATLAB exactly for
+        # nonnegative inputs, which is what we always have here.
+        rx2 = (rx + 1) // 2
         y = np.c_[np.r_[x[rx2:rx, cx - cl:cx], x[0:rx2, cx - cl:cx]],
-               x, np.r_[x[rx2:rx, 0:cr], x[0:rx2, 0:cr]]]
+                  x, np.r_[x[rx2:rx, 0:cr], x[0:rx2, 0:cr]]]
         I = getPerIndices(rx, ru, rd)
         y = y[I, :]
 
         return y
 
     def extmodQper_col():
-        cx2 = round(cx / 2.0)
+        cx2 = (cx + 1) // 2
         y = np.r_[np.c_[x[rx - ru:rx, cx2:cx], x[rx - ru:rx, 0:cx2]],
-               x, np.c_[x[0:rd, cx2:cx], x[0:rd, 0:cx2]]]
+                  x, np.c_[x[0:rd, cx2:cx], x[0:rd, 0:cx2]]]
 
         I = getPerIndices(cx, cl, cr)
         y = y[:, I]
 
         return y
 
-    def errhandler():
-        print('Invalid input for EXTMOD')
-
     switch = {'per': extmodPer,
               'qper_row': extmodQper_row,
               'qper_col': extmodQper_col}
 
-    return switch.get(extmod, errhandler)()
+    if extmod not in switch:
+        raise ValueError('Invalid input for extmod: %r' % extmod)
+    return switch[extmod]()
 
 #----------------------------------------------------------------------------#
 # Internal Function(s)
@@ -1672,7 +1674,8 @@ def pdown(x, type, phase=0):
         if phase == 0:
             y = resamp(x[::2], 2)
         else:
-            y = resamp(x[1::2, np.r_[1:len(x), 0]], 2)
+            # MATLAB: x(2:2:end, [2:end, 1]) -- column index runs [2..ncols, 1]
+            y = resamp(x[1::2, np.r_[1:x.shape[1], 0]], 2)
 
         return y
 
@@ -1700,15 +1703,11 @@ def pdown(x, type, phase=0):
 
         return y
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {0: type0, 1: type1, 2: type2, 3: type3}
 
-    switch = {0: type0,
-              1: type1,
-              2: type2,
-              3: type3}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('pdown type must be one of {0, 1, 2, 3}, got %r' % (type,))
+    return switch[type]()
 
 
 def pup(x, type, phase=0):
@@ -1754,7 +1753,8 @@ def pup(x, type, phase=0):
         if phase == 0:
             y[::2] = resamp(x, 3)
         else:
-            y[1::2, np.r_[1:len(y), 0]] = resamp(x, 3)
+            # MATLAB: y(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+            y[1::2, np.r_[1:y.shape[1], 0]] = resamp(x, 3)
 
         return y
 
@@ -1785,15 +1785,11 @@ def pup(x, type, phase=0):
 
         return y
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {0: type0, 1: type1, 2: type2, 3: type3}
 
-    switch = {0: type0,
-              1: type1,
-              2: type2,
-              3: type3}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('pup type must be one of {0, 1, 2, 3}, got %r' % (type,))
+    return switch[type]()
 
 
 def qdown(x, type='1r', extmod='per', phase=0):
@@ -1856,14 +1852,11 @@ def qdown(x, type='1r', extmod='per', phase=0):
             y = resamp(z[np.r_[1:len(z), 0], 1::2], 0)
         return y
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {'1r': type1r, '1c': type1c, '2r': type2r, '2c': type2c}
 
-    switch = {'1r': type1r,
-              '1c': type1c,
-              '2r': type2r,
-              '2c': type2c}
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError("qdown type must be one of {'1r','1c','2r','2c'}, got %r" % (type,))
+    return switch[type]()
 
 
 def qup(x, type='1r', phase=0):
@@ -1908,7 +1901,8 @@ def qup(x, type='1r', phase=0):
         if phase == 0:
             z[::2] = resamp(x, 3)
         else:
-            z[1::2, np.r_[1:len(z), 0]] = resamp(x, 3)
+            # MATLAB: z(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+            z[1::2, np.r_[1:z.shape[1], 0]] = resamp(x, 3)
         y = resamp(z, 0)
 
         return y
@@ -1943,15 +1937,11 @@ def qup(x, type='1r', phase=0):
 
         return y
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {'1r': type1r, '1c': type1c, '2r': type2r, '2c': type2c}
 
-    switch = {'1r': type1r,
-              '1c': type1c,
-              '2r': type2r,
-              '2c': type2c}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError("qup type must be one of {'1r','1c','2r','2c'}, got %r" % (type,))
+    return switch[type]()
 
 
 def qupz(x, type=1):
@@ -1997,13 +1987,11 @@ def qupz(x, type=1):
 
         return y
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {1: type1, 2: type2}
 
-    switch = {1: type1,
-              2: type2}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('qupz type must be 1 or 2, got %r' % (type,))
+    return switch[type]()
 
 
 def dup(x, step, phase=np.array([0, 0])):
@@ -2029,7 +2017,7 @@ def dup(x, step, phase=np.array([0, 0])):
 
     if phase[0] == 'm' or phase[0] == 'M':
         y = np.zeros((sx - 1) * step + 1)
-        y[0::step[0], 0::step[0]] = x.copy()
+        y[0::step[0], 0::step[1]] = x.copy()
     else:
         y = np.zeros(sx * step)
         y[phase[0]::step[0], phase[1]::step[1]] = x.copy()
@@ -2078,15 +2066,14 @@ def resamp(x, type, shift=1, extmod='per'):
         y = resampc(x.T, type - 2, shift, extmod).T
         return y
 
-    def errhandler():
-        print('The second input (type) must be one of {0, 1, 2, 3}')
-
     switch = {0: type01,
               1: type01,
               2: type23,
               3: type23}
 
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('The second input (type) must be one of {0, 1, 2, 3}')
+    return switch[type]()
 
 
 def resampz(x, type, shift=1):
@@ -2166,15 +2153,14 @@ def resampz(x, type, shift=1):
 
         return y
 
-    def errhandler():
-        print('The second input (type) must be one of {0, 1, 2, 3}')
-
     switch = {0: type01,
               1: type01,
               2: type23,
               3: type23}
 
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('The second input (type) must be one of {0, 1, 2, 3}')
+    return switch[type]()
 
 
 def resampc(x, rtype, shift=1, extmod='per'):
@@ -2251,8 +2237,8 @@ def qpdec(x, type='1r'):
     def type1r():  # Q1 = R1 * D0 * R2
         y = resamp(x, 1)
         p0 = resamp(y[::2], 2)
-        # inv(R2) * [0; 1] = [1; 1]
-        p1 = resamp(y[1::2, np.r_[1:len(y), 0]], 2)
+        # MATLAB: y(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+        p1 = resamp(y[1::2, np.r_[1:y.shape[1], 0]], 2)
 
         return p0, p1
 
@@ -2279,15 +2265,11 @@ def qpdec(x, type='1r'):
         p1 = resamp(y[np.r_[1:len(y), 0], 1::2], 0)
         return p0, p1
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {'1r': type1r, '1c': type1c, '2r': type2r, '2c': type2c}
 
-    switch = {'1r': type1r,
-              '1c': type1c,
-              '2r': type2c,
-              '2c': type2c}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError("qpdec type must be one of {'1r','1c','2r','2c'}, got %r" % (type,))
+    return switch[type]()
 
 
 def qprec(p0, p1, type='1r'):
@@ -2327,7 +2309,8 @@ def qprec(p0, p1, type='1r'):
     def type1r():  # Q1 = R2 * D1 * R3
         y = np.zeros((2 * m, n))
         y[::2, :] = resamp(p0, 3)
-        y[1::2, np.r_[1:len(y), 0]] = resamp(p1, 3)
+        # MATLAB: y(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+        y[1::2, np.r_[1:y.shape[1], 0]] = resamp(p1, 3)
         x = resamp(y, 0)
 
         return x
@@ -2354,15 +2337,11 @@ def qprec(p0, p1, type='1r'):
         x = resamp(y, 2)
         return x
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {'1r': type1r, '1c': type1c, '2r': type2r, '2c': type2c}
 
-    switch = {'1r': type1r,
-              '1c': type1c,
-              '2r': type2c,
-              '2c': type2c}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError("qprec type must be one of {'1r','1c','2r','2c'}, got %r" % (type,))
+    return switch[type]()
 
 
 def ppdec(x, type):
@@ -2396,8 +2375,8 @@ def ppdec(x, type):
 
     def type0():  # P0 = R0 * Q1 = D0 * R2
         p0 = resamp(x[::2, :], 2)
-        # R0 * [0; 1] = [1; 1]
-        p1 = resamp(x[1::2, np.r_[1:len(x), 0]], 2)
+        # MATLAB: x(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+        p1 = resamp(x[1::2, np.r_[1:x.shape[1], 0]], 2)
 
         return p0, p1
 
@@ -2424,15 +2403,11 @@ def ppdec(x, type):
 
         return p0, p1
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {0: type0, 1: type1, 2: type2, 3: type3}
 
-    switch = {0: type0,
-              1: type1,
-              2: type2,
-              3: type3}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('ppdec type must be one of {0, 1, 2, 3}, got %r' % (type,))
+    return switch[type]()
 
 
 def pprec(p0, p1, type):
@@ -2472,7 +2447,8 @@ def pprec(p0, p1, type):
     def type0():    # P1 = R1 * Q1 = D1 * R3
         x = np.zeros((2 * m, n))
         x[::2, :] = resamp(p0, 3)
-        x[1::2, np.r_[1:len(x), 0]] = resamp(p1, 3)
+        # MATLAB: x(2:2:end, [2:end, 1]) -- column index runs [2..n, 1]
+        x[1::2, np.r_[1:x.shape[1], 0]] = resamp(p1, 3)
 
         return x
 
@@ -2497,15 +2473,11 @@ def pprec(p0, p1, type):
 
         return x
 
-    def errhandler():
-        print('Invalid argument type')
+    switch = {0: type0, 1: type1, 2: type2, 3: type3}
 
-    switch = {0: type0,
-              1: type1,
-              2: type2,
-              3: type3}
-
-    return switch.get(type, errhandler)()
+    if type not in switch:
+        raise ValueError('pprec type must be one of {0, 1, 2, 3}, got %r' % (type,))
+    return switch[type]()
 
 # Support functions for generating filters
 
