@@ -2677,24 +2677,28 @@ def smothborder(x, n):
     if x.ndim == 1:
         W = ones((1, x.size))
         W[:, 0:n] = w[:, 0:n]
-        W[:, -1 - n + 1::] = w[:, -1 - n + 1::]
+        W[:, -n::] = w[:, n::]
         y = W * x
     elif x.ndim == 2:
         n1, n2 = x.shape
         W1 = ones((n1, 1))
         W1[0:n] = w[:, 0:n].T
-        W1[-1 - n + 1::] = w[:, n::].T
+        W1[-n::] = w[:, n::].T
 
         y = tile(W1, (1, n2)) * x
 
         W2 = ones((1, n2))
         W2[:, 0:n] = w[:, 0:n]
-        W2[:, -1 - n + 1::] = w[:, n::]
+        W2[:, -n::] = w[:, n::]
         y = tile(W2, (n1, 1)) * y
     else:
-        print('First input must be a signal or image')
+        raise ValueError('First input must be a signal or image')
 
     return y
+
+
+# MATLAB toolbox spells the function `smthborder`; provide that alias.
+smthborder = smothborder
 
 def computescale(subband_dfb, ratio, start, end, mode):
     """
@@ -2929,28 +2933,27 @@ def vec2pdfb(c, s):
        See also:	PDFB2VEC, PDFBREC"""
 
     # Copy the coefficients from c to y according to the structure s
-    n = s[-1, 1]      # number of pyramidal layers
-    y = [[None]] * n
+    # In develop's pdfb2vec the lowpass row uses layer index 0 (MATLAB used 1),
+    # so the number of pyramidal layers is s[-1, 0] + 1.
+    n = int(s[-1, 0]) + 1
+    y = [None] * n
 
     # Variable that keep the current position
-    pos = np.prod(s[0, 2::])
-    y[0] = c[0:pos].reshape(s[0, 2::])
+    pos = int(np.prod(s[0, 2:4]))
+    y[0] = c[0:pos].reshape(s[0, 2:4], order='F')
+
     # Used for row index of s
     ind = 1
 
     for l in range(1, n):
         # Number of directional subbands in this layer
-        print(l)
-        print(s)
-        nd = len((s[:, 0] == l).nonzero())
-        print(nd)
-        y[l] = [[None]] * nd
+        nd = int(np.count_nonzero(s[:, 0] == l))
+        y[l] = [None] * nd
         for d in range(0, nd):
-            # Size of this subband
-            p = s[ind + d, 2]
-            q = s[ind + d, 3]
+            p = int(s[ind + d, 2])
+            q = int(s[ind + d, 3])
             ss = p * q
-            y[l][d] = c[pos + np.arange(0, ss)].reshape([p, q])
+            y[l][d] = c[pos:pos + ss].reshape([p, q], order='F')
             pos = pos + ss
         ind = ind + nd
 
@@ -2976,36 +2979,32 @@ def pdfb2vec(y):
     n = len(y)
 
     # Save the structure of y into s
-    temp = a[0].shape
-    s = []
-    s.append([0, 0, temp[0], temp[1]])
+    temp = y[0].shape
+    s = [[0, 0, temp[0], temp[1]]]
 
-    # Used for row index of s
-    ind = 0
     for l in range(1, n):
         nd = len(y[l])
         for d in range(0, nd):
             temp = y[l][d].shape
-            s.extend([[l, d, temp[0], temp[1]]])
-    ind = ind + nd
+            s.append([l, d, temp[0], temp[1]])
 
     s = np.array(s)
     # The total number of PDFB coefficients
-    nc = sum(np.prod(s[:, 2::], axis=1))
+    nc = int(np.sum(np.prod(s[:, 2::], axis=1)))
     # Assign the coefficients to the vector c
     c = np.zeros(nc)
 
     # Variable that keep the current position
-    pos = np.prod(y[0].shape)
+    pos = int(np.prod(y[0].shape))
 
-    # Lowpass subband
+    # Lowpass subband (column-major flatten matches MATLAB y{1}(:))
     c[0:pos] = y[0].flatten('F')
 
     # Bandpass subbands
     for l in range(1, n):
         for d in range(0, len(y[l])):
-            ss = np.prod(y[l][d].shape)
-            c[pos + np.arange(0, ss)] = y[l][d].flatten('F')
+            ss = int(np.prod(y[l][d].shape))
+            c[pos:pos + ss] = y[l][d].flatten('F')
             pos = pos + ss
 
     return c, s
@@ -3120,6 +3119,105 @@ def pdfbrec(y, pfilt, dfilt):
             # Perform one - level 2 - D critically sampled wavelet filter bank
             x = wfb2rec(xlo, y[-1][0], y[-1][1], y[-1][2], h, g)
     return x
+
+
+def pdfb_nest(nrows, ncols, pfilt, dfilt, nlevs, niter=10, rng=None):
+    """ PDFB_NEST  Estimate the noise standard deviation in the PDFB domain
+
+    nstd = pdfb_nest(nrows, ncols, pfilt, dfilt, nlevs)
+
+    Used for PDFB denoising. For an additive Gaussian white noise of zero
+    mean and standard deviation sigma, the noise standard deviation in the
+    PDFB domain (in vector form) is sigma * nstd.
+
+    Input:
+    nrows, ncols: image size used to drive a Monte-Carlo estimate
+    pfilt, dfilt: pyramidal and directional filter names
+    nlevs:        list of DFB levels per pyramidal level
+    niter:        number of Monte-Carlo iterations (default 10)
+    rng:          optional numpy.random.Generator for reproducibility
+
+    Output:
+    nstd:         per-coefficient standard-deviation scaling, in vector form
+
+    See also:     PDFBDEC, PDFB2VEC"""
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # First run to get the size of the PDFB
+    x = rng.standard_normal((nrows, ncols))
+    y = pdfbdec(x, pfilt, dfilt, nlevs)
+    c, s = pdfb2vec(y)
+
+    nstd = np.zeros(len(c))
+    nlp = int(s[0, 2]) * int(s[0, 3])  # number of lowpass coefficients
+    nstd[nlp:] = nstd[nlp:] + c[nlp:] ** 2
+
+    for _ in range(1, niter):
+        x = rng.standard_normal((nrows, ncols))
+        y = pdfbdec(x, pfilt, dfilt, nlevs)
+        c, _ = pdfb2vec(y)
+        nstd[nlp:] = nstd[nlp:] + c[nlp:] ** 2
+
+    return np.sqrt(nstd / (niter - 1))
+
+
+def pdfb_tr(y, scale, direction, ncoef=None):
+    """ PDFB_TR   Retain the most significant coefficients at certain subbands
+
+    ytr = pdfb_tr(y, scale, direction, [ncoef])
+
+    Input:
+    y:          output from PDFB (cell vector)
+    scale:      scale index (1 is the finest); 0 for ALL scales
+    direction:  direction index (1-based); 0 for ALL directions
+    ncoef:      [optional] number of most significant coefficients to retain
+                from the specified subbands; default is ALL coefficients.
+
+    Output:
+    ytr:        truncated PDFB output
+
+    Notes: Indexing matches the original MATLAB toolbox - scales count from
+    finest (1) to coarsest, and lowpass is retained iff scale == n or
+    scale == 0, where n = len(y) is the number of pyramidal layers + 1
+    (i.e. n - 1 directional layers plus one lowpass)."""
+
+    n = len(y)
+    ytr = [None] * n
+
+    # Lowpass subband
+    if scale == n or scale == 0:
+        ytr[0] = y[0]
+    else:
+        ytr[0] = np.zeros_like(y[0])
+
+    # Directional subbands. MATLAB: for l = 2:n, for k = 1:length(y{l})
+    # Python uses 0-based indexing, so layer l in MATLAB corresponds to
+    # index l-1 here. We keep the user-facing scale/direction 1-based.
+    for l in range(1, n):
+        layer = y[l]
+        kept = [None] * len(layer)
+        for k in range(len(layer)):
+            keep_scale = (scale == (n - l)) or (scale == 0)
+            keep_dir = (direction == (k + 1)) or (direction == 0)
+            if keep_scale and keep_dir:
+                kept[k] = layer[k]
+            else:
+                kept[k] = np.zeros_like(layer[k])
+        ytr[l] = kept
+
+    if ncoef is not None:
+        # Convert the output into the vector format
+        c, s = pdfb2vec(ytr)
+        # Sort the coefficients in the order of energy (descending)
+        csort = np.sort(np.abs(c))[::-1]
+        thresh = csort[min(ncoef, len(csort)) - 1]
+        cc = c * (np.abs(c) >= thresh)
+        ytr = vec2pdfb(cc, s)
+
+    return ytr
+
 
 def showpdfb(y, scaleMode, displayMode, lowratio,
              highratio, coefMode, subbandgap):
@@ -3487,67 +3585,16 @@ def showpdfb(y, scaleMode, displayMode, lowratio,
 
 
 def snr(im, est):
-    """Encuentra la SNR entre la imagen de entrada (in) y la estimada (est) en
-    decibeles.
-    Referencia: Vetterly & Kovacevic, "Wavelets and Subband Coding", p. 386"""
+    """SNR  Signal-to-noise ratio in dB between input `im` and estimate `est`.
 
+    Reference: Vetterli & Kovacevic, "Wavelets and Subband Coding", p. 372.
+
+    Note: matches MATLAB `var(in(:), 1)` (population variance, divisor N).
+    NumPy's default `np.var` is divisor N (ddof=0), so this matches directly.
+    """
     error = im - est
-    r = 10 * np.log10(np.var(im) / np.mean(abs(error)**2))
-    return r
+    return 10 * np.log10(np.var(im) / np.mean(np.abs(error) ** 2))
 
 
-#a = random.rand(1024,1024)
-#a = np.arange(1,1025).reshape(32,32)
-#a = np.arange(1, 1025).reshape(32, 32)
-#tic = time.clock()
-#y = dup(a,np.array([2,2]),'m')
-#toc = time.clock()
-# print toc - tic
-# print y
-#b = qdown(y,2)
-# print b
-#pdb.set_trace()
-#y = dfbdec_l(a, 'haar', 0)
-#print(y)
-# pdb.set_trace()
-#z = dfbrec_l(y, 'haar')
-#print(z[31:], z.shape)
-#print(snr(a, z))
-# 'haar': filterHaar,
-#             'vk': filterVk,
-#             'ko': filterKo,
-#              'kos': filterKos,
-#              'lax': filterLax,
-#              'sk': filterSk,
-#              'cd': filter79,
-#              '7-9': filter79,
-#              'pkva': filterPkva,
-#              'pkva-half4': filterPkvaHalf4,
-#              'pkva-half6': filterPkvaHalf6,
-#              'pkva-half8': filterPkvaHalf8,
-#              'oqf_362': filterOqf,
-#              'test': filterTest,
-#              'dvmlp': filterDvmlp,
-#              'testDVM': filterDVM,
-#              'qmf': filterQmf,
-#              'qmf2': filterQmf2,
-#              'sinc': filterSinc,
-#              'dmaxflat4': filterDmaxflat4,
-#              'dmaxflat5': filterDmaxflat5,
-#              'dmaxflat6': filterDmaxflat6,
-#              'dmaxflat7': filterDmaxflat7}
-
-#h, g = pfilters('9-7')
-#print(h, h.shape)
-#print(g, g.shape)
-#pdb.set_trace()
-#k, l, m, n = wfb2dec(a, h, g)
-#print(k)
-#print(l)
-#print(m)
-#print(n)
-#print(wfb2rec(k,l,m,n,h,g))
-#c, d = lpdec(a, h, g)
-#print(c)
-#print(d)
-#print(lprec(c, d, h, g))
+# MATLAB function name is uppercase `SNR`; provide that alias.
+SNR = snr
