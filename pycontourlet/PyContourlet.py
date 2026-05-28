@@ -2806,8 +2806,9 @@ def computescale(subband_dfb, ratio, start, end, mode):
                 sq += np.sum((subband_dfb[i] - mean_) ** 2)
 
         std = np.sqrt(sq / (count - 1))
-        scales[0] = max(mean_ - ratio * std, real_min)
-        scales[1] = min(mean_ + ratio * std, real_max)
+        # MATLAB does not clamp the real-mode bounds.
+        scales[0] = mean_ - ratio * std
+        scales[1] = mean_ + ratio * std
 
     else:  # Use the absolute coefficients
         for i in range(start, end):
@@ -2836,85 +2837,67 @@ def computescale(subband_dfb, ratio, start, end, mode):
                 sq += np.sum((abs(subband_dfb[i]) - abs_mean) ** 2)
 
         std = np.sqrt(sq / (count - 1))
-        scales[0] = max(abs_mean - ratio * std, abs_min)
-        scales[1] = min(abs_mean + ratio * std, abs_max)
+        # MATLAB clamps the lower bound to 0 (since absolute values are
+        # nonnegative) and does NOT cap the upper bound -- it lets it exceed
+        # the data range so the coefficient scaling has headroom.
+        scales[0] = max(abs_mean - ratio * std, 0.0)
+        scales[1] = abs_mean + ratio * std
 
     return scales
 
-def dfbimage(y, gap, gridI):
+def dfbimage(y, gap=0, gridI=None):
     """ DFBIMAGE    Produce an image from the result subbands of DFB
 
     im = dfbimage(y, [gap, gridI])
 
     Input:
-    y:	output from DFBDEC
-    gap:	gap (in pixels) between subbands
-    gridI:	intensity of the grid that fills in the gap
+    y:      output from DFBDEC (list of subbands)
+    gap:    gap (in pixels) between subbands (default 0)
+    gridI:  intensity of the grid that fills in the gap (default: max abs)
 
     Output:
-    im:	an image with all DFB subbands
+    im:     an image with all DFB subbands tiled
 
     The subband images are positioned as follows
     (for the cases of 4 and 8 subbands):
 
-    0   1              0   2
-             and       1   3
-    2   3             4 5 6 7
-
- History:
-   09/17/2003  Creation.
-   03/31/2004  Change the arrangement of the subbands to highlight
-               the tree structure of directional partition """
-    # Gap between subbands
-    if gap is None:
-        gap = 0
-
+        0   1              0   1
+                 and       2   3
+        2   3            4 5 6 7
+    """
     l = len(y)
 
-    # Intensity of the grid (default is white)
+    # Default grid intensity: max absolute value across all subbands.
     if gridI is None:
-        gridI = 0
-        for k in range(0, l):
-            m = np.abs(y[k]).max()
-            # m = Inf;
-            if m > gridI:
-                gridI = m
+        gridI = max(float(np.abs(y[k]).max()) for k in range(l))
 
-    # gridI = gridI * 1.1;     # add extra 10% of intensity
-
-    # Add grid seperation if required
+    # Add grid separation if required
     if gap > 0:
-        for k in range(0, l):
+        for k in range(l):
             y[k][0:gap, :] = gridI
             y[k][:, 0:gap] = gridI
 
     # Simple case, only 2 subbands
     if l == 2:
-        im = np.r_[y[0], y[1]]
-        return im
+        return np.r_[y[0], y[1]]
 
     # Assume that the first subband has "horizontal" shape
     m, n = y[0].shape
 
-    # The image
-    im = np.zeros((l * m / 2, 2 * n))
+    # The image (height = l*m/2 rows for the two halves)
+    im = np.zeros((l * m // 2, 2 * n))
 
-    # First half of subband images ("horizontal" ones)
-    for k in range(0, (l / 4)):
-        im[np.arange(0, m) + k * m, :] = np.c_[y[k], y[(l / 4) + k]]
+    # First half: horizontal subbands. MATLAB uses pairs (2k-1, 2k)
+    # for k = 1..l/4, which is 0-based pairs (2k, 2k+1) for k = 0..l/4-1.
+    for k in range(l // 4):
+        im[k * m:(k + 1) * m, :] = np.c_[y[2 * k], y[2 * k + 1]]
 
-    # Second half of subband images ("vertical" ones)
-    # The size of each of those subband
-    # It must be that: p = l*m/4  and n = l*q/4
-    p, q = y[l / 2 + 1].shape
+    # Second half: vertical subbands.
+    # MATLAB y{l/2+1} (1-based) -> 0-based y[l//2].
+    p, q = y[l // 2].shape
 
-    for k in range(0, (l / 2)):
-        im[p::, np.arange(0, q) + k * q] = y[(l / 2) + k]
-
-    # Finally, grid line in bottom and left
-    # if gap > 0:
-    # im(end-gap+1:end, :) = gridI
-    # im(:, end-gap+1:end) = gridI
+    for k in range(l // 2):
+        im[p:, k * q:(k + 1) * q] = y[l // 2 + k]
 
     return im
 
@@ -3219,368 +3202,172 @@ def pdfb_tr(y, scale, direction, ncoef=None):
     return ytr
 
 
-def showpdfb(y, scaleMode, displayMode, lowratio,
-             highratio, coefMode, subbandgap):
-    """ SHOWPDFB   Show PDFB coefficients.
+def showpdfb(y, scaleMode='auto2', displayMode='others',
+             lowratio=2.0, highratio=6.0, coefMode='abs', subbandgap=1):
+    """ SHOWPDFB   Render PDFB coefficients as a single tiled image.
 
-    showpdfb(y, [scaleMode, displayMode, lowratio,
-    highratio, coefMode, subbandgap])
+    Faithful Python port of the MATLAB toolbox's showpdfb.m. Returns the
+    displayIm matrix; the caller is responsible for plotting it (e.g. with
+    matplotlib's `imshow(displayIm, cmap='gray')`).
 
     Input:
-    y:	    a cell vector of length n+1, one for each layer of
-    subband images from DFB, y{1} is the lowpass image
+        y:           PDFB output (list of length n+1; y[0] is the lowpass
+                     2-D array, y[i] for i>=1 is a list of directional
+                     subbands).
 
-    scaleMode:
-    scale mode (a string or number):
-    If it is a number, it denotes the number of most significant
-    coefficients to be displayed.  Its default value is 'auto2'.
-    'auto1' ---   All the layers use one scale. It reflects the real
-    values of the coefficients.
-    However, the visibility will be very poor.
-    'auto2' ---   Lowpass uses the first scale. All the highpass use
-    the second scale.
-    'auto3' ---   Lowpass uses the first scale.
-    All the wavelet highpass use the second scale.
-    All the contourlet highpass use the third scale.
+        scaleMode:   string or int.
+                     If a positive int M >= 2: keep only the M most
+                       significant coefficients in the displayed image.
+                     'auto1': all layers share one scale.
+                     'auto2': lowpass scale + one shared highpass scale
+                              (default; matches MATLAB).
+                     'auto3': lowpass + wavelet scale + contourlet scale.
 
-    displayMode:
-    display mode (a string):
-    'vb' -----  display the layers vertically in Matlab environment.
-    It uses the background color for the marginal
-    image.
-    'vw' -----  display the layers vertically for print.
-    It uses the white color for the marginal
-    image.
-    'hb' -----  display the layers horizontally in Matlab environment.
-    It uses the background color for the marginal
-    image.
-    'hw' -----  display the layers horizontally for print.
-    It uses the white color for the marginal
-    image.
+        displayMode: 'matlab' uses the gray background of the figure for
+                     marginal padding; 'others' (default) uses white.
 
-    lowratio:
-    display ratio for the lowpass filter (default value is 2).
-    It ranges from 1.2 to 4.0.
-    highratio:
-    display ratio for the highpass filter (default value is 6).
-    It ranges from 1.5 to 10.
-
-    coefMode:
-    coefficients mode (a string):
-    'real' ----  Highpass filters use the real coefficients.
-    'abs' ------ Highpass filters use the absolute coefficients.
-    It is the default value
-
-    subbandgap:
-    gap (in pixels) between subbands. It ranges from 1 to 4.
+        lowratio:    display ratio for the lowpass band (1.2 - 4.0; default 2).
+        highratio:   display ratio for the highpass bands (1.5 - 10; default 6).
+        coefMode:    'abs' (default) or 'real' for highpass scaling.
+        subbandgap:  pixel gap between subbands (>= 1).
 
     Output:
-    displayIm:  matrix for the display image.
+        displayIm: a 2-D numpy array suitable for imshow(_, cmap='gray').
 
-    See also:     PDFBDEC, DFBIMAGE, COMPUTESCALE
-
-    History:
-    09/17/2003  Creation.
-    09/18/2003  Add two display mode, denoted by 'displayMode'.
-    Add two coefficients mode, denoted by 'coeffMode'.
-    10/03/2003  Add the option for the lowpass wavelet decomposition.
-    10/04/2003  Add a function computescale in computescales.m.
-    This function will call it.
-    Add two scal modes, denoted by 'scaleMode'.
-    It can also display the most significant coefficients.
-    10/05/2003  Add 'axis image' to control resizing.
-    Use the two-fold searching method to find the
-    background color index.
-    04/01/2004  Fixed a bug.
-    04/08/2004  Add new display modes and display the layer images
-    horizontally. """
-
-    if y is None:
-        print("Read showpdfb doc")
-        return
-    # Scale mode
-    if scaleMode is None:
-        scaleMode = 'auto2'
-    elif isnumeric(scaleMode):
-        # Denote the number of significant coefficients to be displayed
+    See also: PDFBDEC, DFBIMAGE, COMPUTESCALE
+    """
+    # Validate / default scaleMode
+    if isinstance(scaleMode, (int, np.integer)) and not isinstance(scaleMode, bool):
         if scaleMode < 2:
-            print ('Warning! The number of significant coefficients must be positive!')
-            scaleMode = 50
-    elif scaleMode != 'auto1' and scaleMode != 'auto2' and scaleMode != 'auto3':
-        print('Warning! There are only two scaleMode mode: auto1, auto2, auto3! Its defualt value is auto2!')
-        scaleMode = 'auto2'
-    # Display ratio for the lowpass band
-    if lowratio is None:
-        lowratio = 2
-    elif lowratio < 1:
-        print('Warning! lowratio must be larger than 1! Its defualt value is 2!')
-        lowratio = 2
+            raise ValueError('scaleMode (n significant coeffs) must be >= 2')
+        scale_is_threshold = True
+    elif scaleMode in ('auto1', 'auto2', 'auto3'):
+        scale_is_threshold = False
+    else:
+        raise ValueError("scaleMode must be 'auto1'/'auto2'/'auto3' or an integer >= 2")
 
-    # Display ratio for the hiphpass band
-    if highratio is None:
-        highratio = 6
-    elif highratio < 1:
-        print('Warning! highratio must be larger than 1! Its defualt value is 6!')
-        highratio = 6
+    if displayMode not in ('matlab', 'others'):
+        raise ValueError("displayMode must be 'matlab' or 'others'")
+    if coefMode not in ('real', 'abs'):
+        raise ValueError("coefMode must be 'real' or 'abs'")
+    if lowratio < 1:
+        raise ValueError('lowratio must be >= 1')
+    if highratio < 1:
+        raise ValueError('highratio must be >= 1')
+    if subbandgap < 1:
+        raise ValueError('subbandgap must be >= 1')
 
-    # Gap between subbands
-    if subbandgap is None:
-        subbandgap = 1
-    elif subbandgap < 1:
-        print('Warning! subbandgap must be no less than 1! Its defualt value is 1!')
-        subbandgap = 1
+    # Match MATLAB/Octave's default 256-entry gray colormap.
+    cColorInx = 256
 
-    # Display mode
-    if displayMode is None:
-        displayMode = 'hw'
-    elif displayMode != 'vb' and displayMode != 'vw' and displayMode != 'hb' and displayMode != 'hw':
-        print('Warning! There are only four display mode: "vb", "vw", "hb", "hw"! Its defualt value is "vb"!')
-        displayMode = 'vw'
+    layergap = 1                       # Gap between layers
+    nAdjustHighpass = 2                # Adjustment ratio for highpass layers
+    nLayers = len(y)                   # number of PDFB layers (1 lowpass + n bandpass)
 
-    # Coefficient mode
-    if coefMode is None:
-        coefMode = 'abs'
-    elif coefMode != 'real' & coefMode != 'abs':
-        print('Warning! There are only two coefficients mode: real, abs! Its defualt value is "abs"!')
-        coefMode = 'abs'
-
-    # Parameters for display
-    layergap = 1  # Gap between layers
-
-    # Input structure analysis.
-    nLayers = len(y)  # number of PDFB layers
-    # Compute the number of wavelets layers.
-    # We assume that the wavelets layers are first several consecutive layers.
-    # The number of the subbands of each layer is 3.
-    fWaveletsLayer = 1
-    nWaveletsLayers = 0  # Number of wavelets layers.
-    nInxContourletLayer = 0  # The index of the first contourlet layer.
-    i = 2
-
-    while fWaveletsLayer > 0 and i <= nLayers:
-        if len(y[i]) == 3:
-            nWaveletsLayers = nWaveletsLayers + 1
+    # Identify the wavelet layers: any leading bandpass layer of length 3
+    # is the output of wfb2dec rather than dfbdec.
+    nWaveletsLayers = 0
+    for i in range(1, nLayers):
+        if isinstance(y[i], list) and len(y[i]) == 3:
+            nWaveletsLayers += 1
         else:
-            fWaveletsLayer = 0
-        i = i + 1
-
-    nInxContourletLayer = 2 + nWaveletsLayers
-
-    # Initialization
-    # Since we will merge the wavelets layers together,
-    # we shall decrease the number of display layers.
+            break
+    nInxContourletLayer = 1 + nWaveletsLayers   # 0-based; first non-wavelet bandpass layer
 
     nDisplayLayers = nLayers - nWaveletsLayers
-    cellLayers = [[]] * nDisplayLayers  # Cell for multiple display layers
-    vScalesTemp = np.zeros((1, 2))   # Temporary scale vector.
-    vScales = np.zeros((nLayers, 2))  # Scale vectors for each layer
-    nAdjustHighpass = 2  # Adjustment ratio for the highpass layers.
+    cellLayers = [None] * nDisplayLayers
+    vScales = np.zeros((nLayers, 2))   # per-layer (min, max) display range
 
-    if isinstance(scaleMode, str):
-        if scaleMode == 'auto1':  # Compute the scales for each layer
-            vScalesTemp = computescale(y, lowratio, 1, nLayers, coefMode)
-            for i in range(0, nLayers):
-                vScales[i, :] = vScalesTemp
-        elif scaleMode == 'auto2':
-            vScales[0, :] = computescale(y, lowratio, 1, 1, coefMode)
-            vScalesTemp = computescale(y, highratio, 2, nLayers, coefMode)
-            # Make a slight adjustment.
-            # Compared to the lowpass, the highpass shall be insignificant.
-            # To make the display more realistic,
-            # use a little trick to make the upper bound a little bigger.
-            # vScalesTemp[1] = nAdjustHighpass
-            # * ( vScalesTemp[1] - vScalesTemp[0] ) + vScalesTemp[0] ;
-            for i in range(1, nLayers):
-                vScales[i, :] = vScalesTemp
-        elif scaleMode == 'auto3':
-            vScales[1, :] = computescale(y, lowratio, 1, 1, coefMode)
-            vScalesTemp = computescale(y, highratio, 2,
-                                        1 + nWaveletsLayers, coefMode)
-            # Make a slight adjustment.
-            # Compared to the lowpass, the highpass shall be insignificant.
-            # To make the display more realistic,
-            # use a little trick to make the upper bound a little bigger.
-            vScalesTemp[1] = nAdjustHighpass * (vScalesTemp[1] - vScalesTemp[0]) + vScalesTemp[0]
-            for i in range(1, nWaveletsLayers + 1):
-                vScales[i, :] = vScalesTemp
-
-            vScalesTemp = computescale(y, highratio, nInxContourletLayer, nLayers, coefMode)
-            # Make a slight adjustment. Compared to the lowpass,
-            # the highpass shall be insignificant.
-            # To make the display more realistic,
-            # use a little trick to make the upper bound a little bigger.
-            vScalesTemp[1] = nAdjustHighpass * (vScalesTemp[1] - vScalesTemp[0]) + vScalesTemp[0]
-            for i in range(nInxContourletLayer, nLayers):
-                vScales[i, :] = vScalesTemp
-
-        else:  # Default value: 'auto2'.
-            vScales[1, :] = computescale(y, lowratio, 1, 1, coefMode)
-            vScalesTemp = computescale(y, highratio, 2, nLayers, coefMode)
-            for i in range(1, nLayers):
-                vScales[i, :] = vScalesTemp
-
-        # Verify that they are reasonable
-        for i in range(nLayers):
-            if vScales[i, 1] < vScales[i, 0] + 1.0e-9:
-                raise TypeError('Error in showpdfb.m! The scale vectors are wrong!')
-            # display ( vScales ) ;
-    else:  # Compute the threshold for the display of coefficients
-        # Convert the output into the vector format
-        [vCoeff, s] = pdfb2vec(y)
-
-        # Sort the coefficient in the order of energy.
-        vSort = sort(abs(vCoeff))
-        # clear vCoeff
-        vSort = fliplr(vSort)
-
-        # Find the threshold value based on number of keeping coeffs
-        dThresh = vSort(scaleMode)
-        # clear vSort;
-
-
-    # Prepare for the display
-    gray = mpl.cm.get_cmap('gray', 64)
-    cmap = gray(np.linspace(0,1,64))[:3]
-    cColorInx = cmap.shape[0]
-
-    # Find background color index:
-    if displayMode == 'vb' or displayMode == 'hb':
-        # Get the background color (gray value)
-        dBgColor = np.array([1, 1, 1])
-
-        # Search the color index by 2-fold searching method.
-        # This method is only useful for the gray color!
-        nSmall = 1
-        nBig = cColorInx
-        while nBig > nSmall + 1:
-            nBgColor = floor((nSmall + nBig) / 2.0)
-            if dBgColor[0] < cmap[nBgColor, 0]:
-                nBig = nBgColor
-            else:
-                nSmall = nBgColor
-
-        if abs(dBgColor[0] - cmap[nBig, 0]) > abs(dBgColor[0] - cmap[nSmall, 0]):
-            nBgColor = nSmall
-        else:
-            nBgColor = nBig
-
-    # Merge all layers to corresponding display layers.
-    # Prepare the cellLayers, including the boundary.
-    # Need to polish with real boudary later!
-    # Now we add the boundary, but erase the images!!
-    # First handle the lowpass filter
-    # White line around subbands
-
-    # 1. One wavelets layers.
-    gridI = cColorInx - 1;
-    cell4Wavelets = [[]] * 4  # Store 4 wavelets subbands.
-    if isinstance(scaleMode, (int, float)):  # Keep the significant efficients
-        waveletsIm = cColorInx * double(abs(y[0]) >= dThresh)
+    # Threshold mode: keep only the K most significant coefficients (in magnitude).
+    dThresh = None
+    if scale_is_threshold:
+        c, _ = pdfb2vec(y)
+        sorted_abs = np.sort(np.abs(c))[::-1]
+        dThresh = sorted_abs[min(scaleMode, len(sorted_abs)) - 1]
     else:
-        dRatio = (cColorInx - 1) / (vScales[0, 1] - vScales[0, 0])
-        if strcmp(coefMode, 'real'):
-            waveletsIm = double(1 + (y[0] - vScales[0, 0]) * dRatio)
-        else:
-            waveletsIm = double(1 + (abs(y[0]) - vScales[0, 0]) * dRatio)
+        # computescale(y, ratio, start, end, mode) is 0-based exclusive end.
+        if scaleMode == 'auto1':
+            v = computescale(y, lowratio, 0, nLayers, coefMode)
+            for i in range(nLayers):
+                vScales[i, :] = v
+        elif scaleMode == 'auto2':
+            vScales[0, :] = computescale(y, lowratio, 0, 1, coefMode)
+            v = computescale(y, highratio, 1, nLayers, coefMode)
+            v[1] = nAdjustHighpass * (v[1] - v[0]) + v[0]
+            for i in range(1, nLayers):
+                vScales[i, :] = v
+        else:  # 'auto3'
+            vScales[0, :] = computescale(y, lowratio, 0, 1, coefMode)
+            if nWaveletsLayers > 0:
+                v = computescale(y, highratio, 1, 1 + nWaveletsLayers, coefMode)
+                v[1] = nAdjustHighpass * (v[1] - v[0]) + v[0]
+                for i in range(1, 1 + nWaveletsLayers):
+                    vScales[i, :] = v
+            if nInxContourletLayer < nLayers:
+                v = computescale(y, highratio, nInxContourletLayer, nLayers, coefMode)
+                v[1] = nAdjustHighpass * (v[1] - v[0]) + v[0]
+                for i in range(nInxContourletLayer, nLayers):
+                    vScales[i, :] = v
+        # Validate the (min, max) bounds.
+        for i in range(nLayers):
+            if vScales[i, 1] < vScales[i, 0] + 1e-9:
+                raise ValueError(
+                    'showpdfb: degenerate scale at layer %d (min=%g, max=%g)'
+                    % (i, vScales[i, 0], vScales[i, 1]))
 
-    # Merge other wavelets layers
+    def _scaled(arr, scale_idx):
+        """Map an array's coefficients to the [1, cColorInx] display range."""
+        if scale_is_threshold:
+            return cColorInx * (np.abs(arr) >= dThresh).astype(float)
+        lo = vScales[scale_idx, 0]
+        hi = vScales[scale_idx, 1]
+        ratio = (cColorInx - 1) / (hi - lo)
+        if coefMode == 'real':
+            return 1 + (arr - lo) * ratio
+        return 1 + (np.abs(arr) - lo) * ratio
+
+    # Background color (matlab background mode uses 'gray' which we approximate
+    # with the midpoint of the colormap; 'others' uses near-white).
+    nBgColor = (cColorInx // 2) if displayMode == 'matlab' else (cColorInx - 1)
+    gridI = cColorInx - 1   # Grid intensity between subbands
+
+    # ---- Build per-display-layer images ----
+    # Layer 0 of cellLayers: the wavelet/lowpass block. Start with the lowpass,
+    # then if there are wavelet layers, fold them in via dfbimage.
+    waveletsIm = _scaled(y[0], 0)
+
     if nWaveletsLayers > 0:
-        for i in range(1, nWaveletsLayers + 1):
+        cell4Wavelets = [None] * 4
+        for i in range(1, 1 + nWaveletsLayers):
             cell4Wavelets[0] = waveletsIm
-            # Compute with the scale ratio.
-            if isinstance(scaleMode, str):
-                dRatio=(cColorInx - 1) / (vScales[i, 1] - vScales[i, 0])
-
-                m = len(y[i]);
-            if m != 3:
-                raise TypeError('Error in showpdfb.m! Incorect number of wavelets subbands!')
-                for k in range(m):
-                    if isinstance(scaleMode, (int, float)):  # Keep the significant efficients
-                        cell4Wavelets[k + 1] = cColorInx * double(abs(y[i][k]) >= dThresh)
-                    else:
-                        if coefMode == 'real':
-                            cell4Wavelets[k + 1] = double(1 + (y[i][k] - vScales[i, 0]) * dRatio)
-                        else:
-                            cell4Wavelets[k + 1] = double(1 + (abs(y[i][k]) - vScales[i, 0]) * dRatio)
+            if len(y[i]) != 3:
+                raise ValueError(
+                    'showpdfb: expected wavelet layer with 3 subbands, got %d'
+                    % len(y[i]))
+            for k in range(3):
+                cell4Wavelets[k + 1] = _scaled(y[i][k], i)
             waveletsIm = dfbimage(cell4Wavelets, subbandgap, gridI)
-
     cellLayers[0] = waveletsIm
 
-    # Compute the inital size of the dispaly image.
-    if displayMode == 'vb' or displayMode == 'vw':
-        # Display vertically
-        nHeight = np.shape(cellLayers[0])[0]
-    else:
-        # Display horizontally
-        nWidth = np.shape(cellLayers[0])[1]
-
-    # 2. All the contourlet layers
+    # Subsequent display layers: each contourlet layer goes through dfbimage.
     for i in range(nInxContourletLayer, nLayers):
-        # Compute with the scale ratio.
-        if isinstance(scaleMode, str):
-            dRatio=(cColorInx - 1) / (vScales[i, 1] - vScales[i, 0])
-
         m = len(y[i])
-        z=[[]] * m
-        for k in range(o, m):
-            if isinstance(scaleMode, (int, float)):  # Keep the significant efficients
-                z[k] = cColorInx * double(abs(y[i][k]) >= dThresh)
-            else:
-                if coefMode == 'real':
-                    z[k] = double(1 + (y[i][k] - vScales[i, 0]) * dRatio)
-                else:
-                    z[k] = double(1 + (abs(y[i][k]) - vScales[i, 0]) * dRatio)
-
+        z = [_scaled(y[i][k], i) for k in range(m)]
         cellLayers[i - nWaveletsLayers] = dfbimage(z, subbandgap, gridI)
 
-        # Update the size
-        if displayMode == 'vb' or displayMode == 'vw':
-            # Display vertically
-            nHeight = nHeight + np.shape(cellLayers[i - nWaveletsLayers])[0]
-        else:
-            # Display horizontally
-            nWidth = nWidth + np.shape(cellLayers[i - nWaveletsLayers])[1]
+    # ---- Stack vertically (matches MATLAB) ----
+    nHeight = sum(layer.shape[0] for layer in cellLayers)
+    nWidth = max(layer.shape[1] for layer in cellLayers)
+    nHeight += layergap * (nDisplayLayers - 1)
 
-    # Merge all layers and add gaps between layers
-    if displayMode == 'vb' or displayMode == 'vw':
-        # Display vertically
-        nWidth = np.shape(cellLayers[nDisplayLayers])[1]
-        nHeight = nHeight + layergap * (nDisplayLayers - 1)
-    else:
-        # Display horizontally
-        nHeight = np.shape(cellLayers[nDisplayLayers])[0]
-        nWidth = nWidth + layergap * (nDisplayLayers - 1)
+    displayIm = nBgColor * np.ones((nHeight, nWidth))
+    nPos = 0
+    for i, layer in enumerate(cellLayers):
+        h, w = layer.shape
+        displayIm[nPos:nPos + h, :w] = layer
+        nPos += h + layergap
 
-    # Set the background for the output image
-    if displayMode == 'vb' or displayMode == 'hb':
-        displayIm = nBgColor * np.ones(nHeight, nWidth)
-    else:
-        displayIm = (cColorInx - 1) * np.ones((nHeight, nWidth))
-
-    nPos=0  # output image pointer
-
-    if displayMode == 'vb' or displayMode == 'vw':
-        # Display vertically
-        for i in range(nDisplayLayers):
-            h, w = np.shape(cellLayers[i])
-            displayIm[nPos + 1: nPos + h, 0: w] = cellLayers[i]
-        if i < nDisplayLayers:
-            # Move the position pointer and add gaps between layers
-            nPos=nPos + h + layergap
-
-    else:
-        # Display horizontally
-        for i in range(nDisplayLayers):
-            h, w = np.shape(cellLayers[i])
-            displayIm[0: h, nPos + 1: nPos + w] = cellLayers[i]
-
-            if i < nDisplayLayers:
-                # Move the position pointer and add gaps between layers
-                nPos=nPos + w + layergap
-
-    hh = plt.imshow(displayIm)
-    # title('decompostion image')
-    plt.axis('off')
+    return displayIm
 
 
 
