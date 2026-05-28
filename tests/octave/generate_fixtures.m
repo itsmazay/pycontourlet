@@ -364,11 +364,19 @@ end
 function showpdfb_save_fixtures(out_dir, x)
     % Pre-compute showpdfb output for several configurations and save the
     % resulting displayIm matrices for parity testing.
+
+    % MATLAB's showpdfb calls image() / colormap() / axis() at the end.
+    % These need a graphics toolkit. On a headless CI runner without X11,
+    % the default 'qt' toolkit fails ('no graphics toolkits are available').
+    % Force 'gnuplot' which works without a display server.
+    available = available_graphics_toolkits();
+    if any(strcmp(available, 'gnuplot'))
+        graphics_toolkit('gnuplot');
+    end
+    set(0, 'DefaultFigureVisible', 'off');
+
     nlevs = [2, 3];
     y = pdfbdec(x, '9-7', 'pkva', nlevs);
-    % MATLAB's showpdfb calls image() at the end; suppress display by
-    % creating an invisible figure for the duration.
-    set(0, 'DefaultFigureVisible', 'off');
     fig = figure('Visible', 'off');
     cleanup_obj = onCleanup(@() close(fig));
 
