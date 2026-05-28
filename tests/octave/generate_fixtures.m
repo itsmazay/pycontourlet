@@ -39,11 +39,24 @@ function generate_fixtures(out_dir)
             'where <TOOLBOX_PATH> contains pfilters.m, dfilters.m, etc.']);
     end
 
-    % Deterministic inputs
+    % Deterministic inputs across multiple shapes so parity tests catch
+    % shape-dependent bugs. R<MN> is a fixed random matrix of size MxN.
     X16 = reshape(1:256, 16, 16) / 256;
     X32 = reshape(1:1024, 32, 32) / 1024;
     rand('state', 42);
     R32 = randn(32, 32);
+    R16 = randn(16, 16);
+    R64 = randn(64, 64);
+    R16x24 = randn(16, 24);    % non-square, both dims even
+    R8 = randn(8, 8);          % small input
+
+    % shapes table for primitive functions: name -> matrix
+    PRIM_SHAPES = struct( ...
+        'sq32',   R32, ...
+        'sq16',   R16, ...
+        'sq64',   R64, ...
+        'rect',   R16x24, ...
+        'small8', R8);
 
     fprintf('Writing fixtures to %s\n', out_dir);
 
@@ -106,44 +119,44 @@ function generate_fixtures(out_dir)
          'f1_1', 'f1_2', 'f1_3', 'f1_4');
 
     %% ---- Sampling primitives --------------------------------------------
-    % resampc periodic mode
-    for rt = [1, 2]
-        for sh = [1, 2]
-            x = R32;
-            rtype = rt;
-            shift = sh;
-            y = resampc(R32, rt, sh, 'per');
-            save('-v6', ...
-                 fullfile(out_dir, sprintf('resampc_t%d_s%d.mat', rt, sh)), ...
-                 'x', 'rtype', 'shift', 'y');
+    % resampc periodic mode (loops over multiple shapes for parity coverage)
+    prim_shape_names = {'sq32', 'sq64', 'rect'};
+    prim_shapes = {R32, R64, R16x24};
+    for i = 1:length(prim_shapes)
+        sn = prim_shape_names{i};
+        XX = prim_shapes{i};
+        for rt = [1, 2]
+            for sh = [1, 2]
+                x = XX; rtype = rt; shift = sh;
+                y = resampc(XX, rt, sh, 'per');
+                save('-v6', ...
+                     fullfile(out_dir, sprintf('resampc_%s_t%d_s%d.mat', sn, rt, sh)), ...
+                     'x', 'rtype', 'shift', 'y');
+            end
+        end
+        for rt = 1:4
+            x = XX; rtype = rt;
+            y = resamp(XX, rt);
+            save('-v6', fullfile(out_dir, sprintf('resamp_%s_t%d.mat', sn, rt)), ...
+                 'x', 'rtype', 'y');
+            y = resampz(XX, rt);
+            save('-v6', fullfile(out_dir, sprintf('resampz_%s_t%d.mat', sn, rt)), ...
+                 'x', 'rtype', 'y');
         end
     end
 
-    % resamp 1..4
-    for rt = 1:4
-        x = R32;
-        rtype = rt;
-        y = resamp(R32, rt);
-        save('-v6', fullfile(out_dir, sprintf('resamp_t%d.mat', rt)), ...
-             'x', 'rtype', 'y');
-    end
-
-    % resampz 1..4
-    for rt = 1:4
-        x = R32;
-        rtype = rt;
-        y = resampz(R32, rt);
-        save('-v6', fullfile(out_dir, sprintf('resampz_t%d.mat', rt)), ...
-             'x', 'rtype', 'y');
-    end
-
-    % qupz
-    for tp = [1, 2]
-        x = X16;
-        qtype = tp;
-        y = qupz(X16, tp);
-        save('-v6', fullfile(out_dir, sprintf('qupz_t%d.mat', tp)), ...
-             'x', 'qtype', 'y');
+    % qupz: even rows or arbitrary shape OK (uses resampz)
+    qupz_shape_names = {'sq16', 'sq32', 'rect'};
+    qupz_shapes = {R16, R32, R16x24};
+    for i = 1:length(qupz_shapes)
+        sn = qupz_shape_names{i};
+        XX = qupz_shapes{i};
+        for tp = [1, 2]
+            x = XX; qtype = tp;
+            y = qupz(XX, tp);
+            save('-v6', fullfile(out_dir, sprintf('qupz_%s_t%d.mat', sn, tp)), ...
+                 'x', 'qtype', 'y');
+        end
     end
 
     % dup
@@ -155,135 +168,182 @@ function generate_fixtures(out_dir)
     phase = 'm';
     y = dup(X16, [2, 2], 'm');
     save('-v6', fullfile(out_dir, 'dup_minimum.mat'), 'x', 'step', 'phase', 'y');
+    % dup with rectangular input
+    x = R16x24; step = [2, 2]; phase = [0, 0];
+    y = dup(R16x24, [2, 2], [0, 0]);
+    save('-v6', fullfile(out_dir, 'dup_rect_zero.mat'), 'x', 'step', 'phase', 'y');
 
-    % qdown / qup
+    % qdown / qup with multiple shapes (need even rows + cols)
     qtypes = {'1r', '1c', '2r', '2c'};
-    for i = 1:length(qtypes)
-        qt = qtypes{i};
-        x = R32;
-        qtype = qt;
-        y = qdown(R32, qt);
-        save('-v6', fullfile(out_dir, ['qdown_' qt '.mat']), ...
-             'x', 'qtype', 'y');
-        rec = qup(y, qt);
-        save('-v6', fullfile(out_dir, ['qup_' qt '.mat']), ...
-             'y', 'qtype', 'rec');
+    qd_shape_names = {'sq32', 'sq64', 'rect'};
+    qd_shapes = {R32, R64, R16x24};
+    for i = 1:length(qd_shapes)
+        sn = qd_shape_names{i};
+        XX = qd_shapes{i};
+        for j = 1:length(qtypes)
+            qt = qtypes{j};
+            x = XX; qtype = qt;
+            y = qdown(XX, qt);
+            save('-v6', fullfile(out_dir, sprintf('qdown_%s_%s.mat', sn, qt)), ...
+                 'x', 'qtype', 'y');
+            rec = qup(y, qt);
+            save('-v6', fullfile(out_dir, sprintf('qup_%s_%s.mat', sn, qt)), ...
+                 'y', 'qtype', 'rec');
+        end
     end
 
-    % pdown / pup
-    for pt = 1:4
-        x = R32;
-        ptype = pt;
-        y = pdown(R32, pt);
-        save('-v6', fullfile(out_dir, sprintf('pdown_t%d.mat', pt)), ...
-             'x', 'ptype', 'y');
-        rec = pup(y, pt);
-        save('-v6', fullfile(out_dir, sprintf('pup_t%d.mat', pt)), ...
-             'y', 'ptype', 'rec');
+    % pdown / pup with multiple shapes
+    for i = 1:length(qd_shapes)
+        sn = qd_shape_names{i};
+        XX = qd_shapes{i};
+        for pt = 1:4
+            x = XX; ptype = pt;
+            y = pdown(XX, pt);
+            save('-v6', fullfile(out_dir, sprintf('pdown_%s_t%d.mat', sn, pt)), ...
+                 'x', 'ptype', 'y');
+            rec = pup(y, pt);
+            save('-v6', fullfile(out_dir, sprintf('pup_%s_t%d.mat', sn, pt)), ...
+                 'y', 'ptype', 'rec');
+        end
     end
 
     %% ---- Polyphase decomposition / reconstruction -----------------------
-    for i = 1:length(qtypes)
-        qt = qtypes{i};
-        x = R32;
-        qtype = qt;
-        [p0, p1] = qpdec(R32, qt);
-        save('-v6', fullfile(out_dir, ['qpdec_' qt '.mat']), ...
-             'x', 'qtype', 'p0', 'p1');
-        x_rec = qprec(p0, p1, qt);
-        save('-v6', fullfile(out_dir, ['qprec_' qt '.mat']), ...
-             'p0', 'p1', 'qtype', 'x_rec');
-    end
-    for pt = 1:4
-        x = R32;
-        ptype = pt;
-        [p0, p1] = ppdec(R32, pt);
-        save('-v6', fullfile(out_dir, sprintf('ppdec_t%d.mat', pt)), ...
-             'x', 'ptype', 'p0', 'p1');
-        x_rec = pprec(p0, p1, pt);
-        save('-v6', fullfile(out_dir, sprintf('pprec_t%d.mat', pt)), ...
-             'p0', 'p1', 'ptype', 'x_rec');
+    for i = 1:length(qd_shapes)
+        sn = qd_shape_names{i};
+        XX = qd_shapes{i};
+        for j = 1:length(qtypes)
+            qt = qtypes{j};
+            x = XX; qtype = qt;
+            [p0, p1] = qpdec(XX, qt);
+            save('-v6', fullfile(out_dir, sprintf('qpdec_%s_%s.mat', sn, qt)), ...
+                 'x', 'qtype', 'p0', 'p1');
+            x_rec = qprec(p0, p1, qt);
+            save('-v6', fullfile(out_dir, sprintf('qprec_%s_%s.mat', sn, qt)), ...
+                 'p0', 'p1', 'qtype', 'x_rec');
+        end
+        for pt = 1:4
+            x = XX; ptype = pt;
+            [p0, p1] = ppdec(XX, pt);
+            save('-v6', fullfile(out_dir, sprintf('ppdec_%s_t%d.mat', sn, pt)), ...
+                 'x', 'ptype', 'p0', 'p1');
+            x_rec = pprec(p0, p1, pt);
+            save('-v6', fullfile(out_dir, sprintf('pprec_%s_t%d.mat', sn, pt)), ...
+                 'p0', 'p1', 'ptype', 'x_rec');
+        end
     end
 
     %% ---- Extension / filtering primitives -------------------------------
-    x = R32; ru = 2; rd = 3; cl = 1; cr = 4; extmod = 'per';
-    y = extend2(R32, 2, 3, 1, 4, 'per');
-    save('-v6', fullfile(out_dir, 'extend2_per.mat'), ...
-         'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
+    ext_shape_names = {'sq32', 'sq64', 'rect'};
+    ext_shapes = {R32, R64, R16x24};
+    for i = 1:length(ext_shapes)
+        sn = ext_shape_names{i};
+        XX = ext_shapes{i};
+        x = XX; ru = 2; rd = 3; cl = 1; cr = 4; extmod = 'per';
+        y = extend2(XX, 2, 3, 1, 4, 'per');
+        save('-v6', fullfile(out_dir, sprintf('extend2_%s_per.mat', sn)), ...
+             'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
 
-    x = R32; ru = 1; rd = 1; cl = 0; cr = 0; extmod = 'qper_row';
-    y = extend2(R32, 1, 1, 0, 0, 'qper_row');
-    save('-v6', fullfile(out_dir, 'extend2_qper_row.mat'), ...
-         'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
+        x = XX; ru = 1; rd = 1; cl = 0; cr = 0; extmod = 'qper_row';
+        y = extend2(XX, 1, 1, 0, 0, 'qper_row');
+        save('-v6', fullfile(out_dir, sprintf('extend2_%s_qper_row.mat', sn)), ...
+             'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
 
-    x = R32; ru = 1; rd = 1; cl = 0; cr = 0; extmod = 'qper_col';
-    y = extend2(R32, 1, 1, 0, 0, 'qper_col');
-    save('-v6', fullfile(out_dir, 'extend2_qper_col.mat'), ...
-         'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
+        x = XX; ru = 1; rd = 1; cl = 0; cr = 0; extmod = 'qper_col';
+        y = extend2(XX, 1, 1, 0, 0, 'qper_col');
+        save('-v6', fullfile(out_dir, sprintf('extend2_%s_qper_col.mat', sn)), ...
+             'x', 'ru', 'rd', 'cl', 'cr', 'extmod', 'y');
+    end
 
     [h, g] = pfilters('9-7');
-    x = R32; f1 = h; f2 = h; extmod = 'per';
-    y = sefilter2(R32, h, h, 'per');
-    save('-v6', fullfile(out_dir, 'sefilter2_per.mat'), ...
-         'x', 'f1', 'f2', 'extmod', 'y');
+    for i = 1:length(ext_shapes)
+        sn = ext_shape_names{i};
+        XX = ext_shapes{i};
+        x = XX; f1 = h; f2 = h; extmod = 'per';
+        y = sefilter2(XX, h, h, 'per');
+        save('-v6', fullfile(out_dir, sprintf('sefilter2_%s_per.mat', sn)), ...
+             'x', 'f1', 'f2', 'extmod', 'y');
 
-    f = h' * h;
-    x = R32; extmod = 'per';
-    y = efilter2(R32, h' * h, 'per');
-    save('-v6', fullfile(out_dir, 'efilter2_per.mat'), 'x', 'f', 'extmod', 'y');
+        f = h' * h;
+        x = XX; extmod = 'per';
+        y = efilter2(XX, h' * h, 'per');
+        save('-v6', fullfile(out_dir, sprintf('efilter2_%s_per.mat', sn)), ...
+             'x', 'f', 'extmod', 'y');
+    end
 
     %% ---- Laplacian pyramid / wavelet ------------------------------------
     pf = {'9-7', '5-3', 'Burt'};
+    lp_shape_names = {'sq32', 'sq64', 'rect'};
+    lp_shapes = {R32, R64, R16x24};
     for i = 1:length(pf)
         n = pf{i};
         [h, g] = pfilters(n);
-        [c, d] = lpdec(R32, h, g);
-        rec = lprec(c, d, h, g);
-        x = R32;
-        save('-v6', fullfile(out_dir, ['lpdec_' slugify(n) '.mat']), ...
-             'x', 'h', 'g', 'c', 'd');
-        save('-v6', fullfile(out_dir, ['lprec_' slugify(n) '.mat']), ...
-             'c', 'd', 'h', 'g', 'rec');
+        for j = 1:length(lp_shapes)
+            sn = lp_shape_names{j};
+            XX = lp_shapes{j};
+            [c, d] = lpdec(XX, h, g);
+            rec = lprec(c, d, h, g);
+            x = XX;
+            save('-v6', fullfile(out_dir, sprintf('lpdec_%s_%s.mat', sn, slugify(n))), ...
+                 'x', 'h', 'g', 'c', 'd');
+            save('-v6', fullfile(out_dir, sprintf('lprec_%s_%s.mat', sn, slugify(n))), ...
+                 'c', 'd', 'h', 'g', 'rec');
+        end
     end
 
     [h, g] = pfilters('9-7');
-    [LL, LH, HL, HH] = wfb2dec(R32, h, g);
-    rec = wfb2rec(LL, LH, HL, HH, h, g);
-    x = R32;
-    save('-v6', fullfile(out_dir, 'wfb2_9_7.mat'), ...
-         'x', 'h', 'g', 'LL', 'LH', 'HL', 'HH', 'rec');
-
-    %% ---- DFB ladder (pkva) and general (cd) -----------------------------
-    for nlev = 1:3
-        x = R32;
-        fname = 'pkva';
-        y = dfbdec_l(R32, 'pkva', nlev);
-        rec = dfbrec_l(y, 'pkva');
-        save_dfb(fullfile(out_dir, sprintf('dfb_l_pkva_n%d.mat', nlev)), ...
-                 x, fname, nlev, y, rec);
+    wfb_shape_names = {'sq32', 'sq64'};
+    wfb_shapes = {R32, R64};
+    for i = 1:length(wfb_shapes)
+        sn = wfb_shape_names{i};
+        XX = wfb_shapes{i};
+        [LL, LH, HL, HH] = wfb2dec(XX, h, g);
+        rec = wfb2rec(LL, LH, HL, HH, h, g);
+        x = XX;
+        save('-v6', fullfile(out_dir, sprintf('wfb2_%s_9_7.mat', sn)), ...
+             'x', 'h', 'g', 'LL', 'LH', 'HL', 'HH', 'rec');
     end
 
-    df = {'cd', '9-7'};
-    for i = 1:length(df)
-        nm = df{i};
+    %% ---- DFB ladder (pkva) and general (cd) -----------------------------
+    % DFB needs square input divisible by 2^nlev. Use sq32 and sq64.
+    dfb_shape_names = {'sq32', 'sq64'};
+    dfb_shapes = {R32, R64};
+    for i = 1:length(dfb_shapes)
+        sn = dfb_shape_names{i};
+        XX = dfb_shapes{i};
         for nlev = 1:3
-            x = R32;
-            fname = nm;
-            y = dfbdec(R32, nm, nlev);
-            rec = dfbrec(y, nm);
-            save_dfb(fullfile(out_dir, ...
-                              sprintf('dfb_%s_n%d.mat', slugify(nm), nlev)), ...
+            x = XX; fname = 'pkva';
+            y = dfbdec_l(XX, 'pkva', nlev);
+            rec = dfbrec_l(y, 'pkva');
+            save_dfb(fullfile(out_dir, sprintf('dfb_l_pkva_%s_n%d.mat', sn, nlev)), ...
                      x, fname, nlev, y, rec);
+        end
+        df = {'cd', '9-7'};
+        for j = 1:length(df)
+            nm = df{j};
+            for nlev = 1:3
+                x = XX; fname = nm;
+                y = dfbdec(XX, nm, nlev);
+                rec = dfbrec(y, nm);
+                save_dfb(fullfile(out_dir, ...
+                                  sprintf('dfb_%s_%s_n%d.mat', slugify(nm), sn, nlev)), ...
+                         x, fname, nlev, y, rec);
+            end
         end
     end
 
     %% ---- PDFB end-to-end ------------------------------------------------
-    nlevs = [2, 3];
-    y = pdfbdec(R32, '9-7', 'pkva', nlevs);
-    [c, s] = pdfb2vec(y);
-    rec = pdfbrec(y, '9-7', 'pkva');
-    save_pdfb(fullfile(out_dir, 'pdfb_9_7_pkva_2_3.mat'), ...
-              R32, '9-7', 'pkva', nlevs, y, c, s, rec);
+    pdfb_shape_names = {'sq32', 'sq64'};
+    pdfb_shapes = {R32, R64};
+    for i = 1:length(pdfb_shapes)
+        sn = pdfb_shape_names{i};
+        XX = pdfb_shapes{i};
+        nlevs = [2, 3];
+        y = pdfbdec(XX, '9-7', 'pkva', nlevs);
+        [c, s] = pdfb2vec(y);
+        rec = pdfbrec(y, '9-7', 'pkva');
+        save_pdfb(fullfile(out_dir, sprintf('pdfb_%s_9_7_pkva_2_3.mat', sn)), ...
+                  XX, '9-7', 'pkva', nlevs, y, c, s, rec);
+    end
 
     %% ---- snr -------------------------------------------------------------
     in = R32;
@@ -291,7 +351,42 @@ function generate_fixtures(out_dir)
     r = SNR(R32, est);
     save('-v6', fullfile(out_dir, 'snr_demo.mat'), 'in', 'est', 'r');
 
+    %% ---- showpdfb (display image rendered from PDFB output) -------------
+    % Use a small input + simple decomposition so the rendered image is small.
+    % The MATLAB script in showpdfb.m calls image() / axis at the end which
+    % opens a figure; we want only the displayIm matrix.
+    showpdfb_save_fixtures(out_dir, R32);
+
     fprintf('Done.\n');
+end
+
+
+function showpdfb_save_fixtures(out_dir, x)
+    % Pre-compute showpdfb output for several configurations and save the
+    % resulting displayIm matrices for parity testing.
+    nlevs = [2, 3];
+    y = pdfbdec(x, '9-7', 'pkva', nlevs);
+    % MATLAB's showpdfb calls image() at the end; suppress display by
+    % creating an invisible figure for the duration.
+    set(0, 'DefaultFigureVisible', 'off');
+    fig = figure('Visible', 'off');
+    cleanup_obj = onCleanup(@() close(fig));
+
+    displayIm = showpdfb(y, 'auto2', 'others', 2, 6, 'abs', 1);
+    save('-v6', fullfile(out_dir, 'showpdfb_auto2.mat'), 'x', 'displayIm');
+
+    displayIm = showpdfb(y, 'auto1', 'others', 2, 6, 'abs', 1);
+    save('-v6', fullfile(out_dir, 'showpdfb_auto1.mat'), 'x', 'displayIm');
+
+    % Threshold mode: keep the K most significant coefficients
+    displayIm = showpdfb(y, 200, 'others', 2, 6, 'abs', 1);
+    save('-v6', fullfile(out_dir, 'showpdfb_thresh200.mat'), 'x', 'displayIm');
+
+    % auto3 with a wavelet layer
+    nlevs2 = [0, 3];
+    y2 = pdfbdec(x, '9-7', 'pkva', nlevs2);
+    displayIm = showpdfb(y2, 'auto3', 'others', 2, 6, 'abs', 1);
+    save('-v6', fullfile(out_dir, 'showpdfb_auto3_wavelet.mat'), 'x', 'displayIm');
 end
 
 
