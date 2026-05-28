@@ -1,5 +1,7 @@
 # pycontourlet
 
+[![CI](https://github.com/itsmazay/pycontourlet/actions/workflows/ci.yml/badge.svg)](https://github.com/itsmazay/pycontourlet/actions/workflows/ci.yml)
+
 Python 3 port of Minh Do and Duncan Po's MATLAB **Contourlet Toolbox**
 (v2.0, November 2003). The contourlet transform is a multiscale,
 multi-direction image representation built from a Laplacian pyramid plus
@@ -48,11 +50,21 @@ pytest tests/
 
 Two suites:
 
-- `tests/test_smoke.py` -- 94 invariant + dispatch tests; no Octave.
-- `tests/test_octave_parity.py` -- 103 numerical-equivalence tests
+- `tests/test_smoke.py` — 94 invariant + dispatch tests; no Octave.
+- `tests/test_octave_parity.py` — 234 numerical-equivalence tests
   against the original MATLAB toolbox via Octave. See
   [tests/octave/README.md](tests/octave/README.md) for how to regenerate
   fixtures.
+
+## Documentation
+
+- [`CHANGELOG.md`](CHANGELOG.md) — version history.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup and how to run the
+  full test suite (including MATLAB parity).
+- [`tests/octave/AUDIT.md`](tests/octave/AUDIT.md) — function-by-function
+  audit, organized bottom-up by dependency.
+- [`tests/octave/AUDIT_CONTENTS.md`](tests/octave/AUDIT_CONTENTS.md) —
+  same audit reorganized by the upstream MATLAB `Contents.m` grouping.
 
 ## License
 
