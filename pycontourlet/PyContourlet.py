@@ -235,7 +235,7 @@ def dfbdec(x, fname, n):
     See also: DFBREC, FBDEC, DFILTERS"""
 
     if (n != round(n)) or (n < 0):
-        print ('Number of decomposition levels must be a non-negative integer')
+        raise ValueError('Number of decomposition levels must be a non-negative integer')
 
     if n == 0:
         # No decomposition, simply copy input to output
@@ -307,7 +307,7 @@ def dfbrec(y, fname):
     n = int(log2(len(y)))
 
     if (n != round(n)) or (n < 0):
-        print('Number of reconstruction levels must be a non-negative integer')
+        raise ValueError('Number of reconstruction levels must be a non-negative integer')
 
     if n == 0:
         # Simply copy input to output
@@ -381,7 +381,7 @@ def dfbdec_l(x, f, n):
     y:  subband images in a cell array (of size 2^n x 1)"""
 
     if (n != round(n)) or (n < 0):
-        print('Number of decomposition levels must be a non-negative integer')
+        raise ValueError('Number of decomposition levels must be a non-negative integer')
 
     if n == 0:
         # No decomposition, simply copy input to output
@@ -390,7 +390,7 @@ def dfbdec_l(x, f, n):
         return y
 
     # Ladder filter
-    if str(f) == f:
+    if isinstance(f, str):
         f = ldfilter(f)
 
     # Tree-structured filter banks
@@ -452,7 +452,7 @@ def dfbrec_l(y, f):
     n = int(np.log2(len(y)))
 
     if (n != round(n)) or (n < 0):
-        print('Number of reconstruction levels must be a non-negative integer')
+        raise ValueError('Number of reconstruction levels must be a non-negative integer')
 
     if n == 0:
         # Simply copy input to output
@@ -460,7 +460,7 @@ def dfbrec_l(y, f):
         return x
 
     # Ladder filter
-    if str(f) == f:
+    if isinstance(f, str):
         f = ldfilter(f)
 
     # Flip back the order of the second half channels
@@ -538,12 +538,12 @@ def fbdec(x, h0, h1, type1, type2, extmod='per'):
 
         # Account for the resampling matrix in the parallegoram case
         if type1 == 'p':
-            R = [[None]] * 4
-            R[0] = np.array([[1, 1], [0, 1]])
-            R[1] = np.array([[1, -1], [0, 1]])
-            R[2] = np.array([[1, 0], [1, 1]])
-            R[3] = np.array([[1, 0], [-1, 1]])
-            shift = R[type2] * shift
+            R = [np.array([[1, 1], [0, 1]]),
+                 np.array([[1, -1], [0, 1]]),
+                 np.array([[1, 0], [1, 1]]),
+                 np.array([[1, 0], [-1, 1]])]
+            # MATLAB R{type2} * shift is matrix multiplication, not elementwise.
+            shift = R[type2] @ shift
     else:
         shift = np.array([[0], [0]])
     # Extend, filter and keep the original size
@@ -564,7 +564,7 @@ def fbdec(x, h0, h1, type1, type2, extmod='per'):
         y0 = qdown(y0, pqtype[type2])
         y1 = qdown(y1, pqtype[type2])
     else:
-        print('Invalid input type1')
+        raise ValueError("fbdec type1 must be 'q', 'p', or 'pq', got %r" % (type1,))
     return y0, y1
 
 
@@ -609,19 +609,19 @@ def fbrec(y0, y1, h0, h1, type1, type2, extmod='per'):
         y0 = qup(y0, pqtype[type2])
         y1 = qup(y1, pqtype[type2])
     else:
-        print('Invalid input type1')
+        raise ValueError("fbrec type1 must be 'q', 'p', or 'pq', got %r" % (type1,))
 
     # Stagger sampling if filter is odd-size
     if all(np.mod(h1.shape, 2)):
         shift = np.array([[1], [0]])
         # Account for the resampling matrix in the parallegoram case
         if type1 == 'p':
-            R = [[None]] * 4
-            R[0] = np.array([[1, 1], [0, 1]])
-            R[1] = np.array([[1, -1], [0, 1]])
-            R[2] = np.array([[1, 0], [1, 1]])
-            R[3] = np.array([[1, 0], [-1, 1]])
-            shift = R[type2] * shift
+            R = [np.array([[1, 1], [0, 1]]),
+                 np.array([[1, -1], [0, 1]]),
+                 np.array([[1, 0], [1, 1]]),
+                 np.array([[1, 0], [-1, 1]])]
+            # MATLAB R{type2} * shift is matrix multiplication, not elementwise.
+            shift = R[type2] @ shift
     else:
         shift = np.array([[0], [0]])
 
@@ -675,17 +675,17 @@ def fbdec_l(x, f, type1, type2, extmod='per'):
     f[:, ::2] = -f[:, ::2]
 
     if min(x.shape) == 1:
-        print('Input is a vector, unpredicted output!')
+        raise ValueError('Input is a vector, unpredicted output!')
 
     # Polyphase decomposition of the input image
-    if str.lower(type1[0]) == 'q':
+    if type1[0].lower() == 'q':
         # Quincunx polyphase decomposition
         p0, p1 = qpdec(x, type2)
-    elif str.lower(type1[0]) == 'p':
+    elif type1[0].lower() == 'p':
         # Parallelogram polyphase decomposition
         p0, p1 = ppdec(x, type2)
     else:
-        print('Invalid argument type1')
+        raise ValueError("fbdec_l type1 must start with 'q' or 'p', got %r" % (type1,))
 
     # Ladder network structure
     y0 = (1 / sqrt(2)) * (p0 - sefilter2(p1, f, f, extmod, np.array([[1], [1]])))
@@ -727,14 +727,14 @@ def fbrec_l(y0, y1, f, type1, type2, extmod='per'):
     p0 = sqrt(2) * y0 + sefilter2(p1, f, f, extmod, np.array([[1], [1]]))
 
     # Polyphase reconstruction
-    if str.lower(type1[0]) == 'q':
+    if type1[0].lower() == 'q':
         # Quincunx polyphase reconstruction
         x = qprec(p0, p1, type2)
-    elif str.lower(type1[0]) == 'p':
+    elif type1[0].lower() == 'p':
         # Parallelogram polyphase reconstruction
         x = pprec(p0, p1, type2)
     else:
-        print('Invalid argument type1')
+        raise ValueError("fbrec_l type1 must start with 'q' or 'p', got %r" % (type1,))
 
     return x
 
@@ -799,22 +799,20 @@ def pfilters(fname):
         beta = ldfilter(fname)
 
         lf = np.size(beta)
-
-        n = lf / 2.0
-
-        if n != np.floor(n):
-            print('The input allpass filter must be even length')
+        if lf % 2 != 0:
+            raise ValueError('The input allpass filter must be even length')
+        n = lf // 2
 
         # beta(z^2)
         beta2 = np.zeros((1, 2 * lf - 1))
         beta2[:, ::2] = beta
 
-        # H(z)
+        # H(z): MATLAB h(2*n) = h(2*n) + 1 (1-based) -> 0-based 2*n - 1
         h = beta2.copy()
         h[:, 2 * n - 1] = h[:, 2 * n - 1] + 1
         h = h / 2.0
 
-        # G(z)
+        # G(z): MATLAB g(4*n - 1) (1-based) -> 0-based 4*n - 2
         g = -signal.convolve(beta2, h)
         g[:, 4 * n - 2] = g[:, 4 * n - 2] + 1
         g[:, 1:-1:2] = -g[:, 1:-1:2]
@@ -825,9 +823,6 @@ def pfilters(fname):
 
         return h, g
 
-    def errhandler():
-        print('Invalid filter name')
-
     switch = {'9/7': filter97,
               '9-7': filter97,
               'maxflat': filterMaxFlat,
@@ -837,7 +832,9 @@ def pfilters(fname):
               'burt': filterBurt,
               'pkva': filterPkva}
 
-    return switch.get(fname, errhandler)()
+    if fname not in switch:
+        raise ValueError('Unknown pfilter name: %r' % (fname,))
+    return switch[fname]()
 
 
 def dfilters(fname, type):
@@ -1028,7 +1025,7 @@ def dfilters(fname, type):
                     0.557543526229, 0.295635881557, -0.028771763114,
                     -0.045635881557]])
 
-        if str.lower(type[0]) == 'd':
+        if type[0].lower() == 'd':
             h1 = modulate2(g0, 'c')
         else:
             h1 = modulate2(h0, 'c')
@@ -1039,6 +1036,19 @@ def dfilters(fname, type):
         h0 = sqrt(2) * mctrans(h0, t)
         h1 = sqrt(2) * mctrans(h1, t)
 
+        return h0, h1
+
+    def filter53():  # McClellan transformed of 5-3 filters
+        h0, g0 = pfilters('5-3')
+        if type[0].lower() == 'd':
+            h1 = modulate2(g0, 'c')
+        else:
+            h1 = modulate2(h0, 'c')
+            h0 = g0.copy()
+        # Use McClellan to obtain 2D filters
+        t = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]]) / 4.0
+        h0 = mctrans(h0, t)
+        h1 = mctrans(h1, t)
         return h0, h1
 
     def filterPkva():
@@ -1061,69 +1071,6 @@ def dfilters(fname, type):
             f1 = modulate2(h0, 'b')
             h0 = f0.copy()
             h1 = f1.copy()
-
-        return h0, h1
-
-    def filterPkvaHalf4():  # Filters from the ladder structure
-        # Allpass filter for the ladder structure network
-
-        beta = ldfilterhalf(4)
-
-        # Analysis filters
-
-        h0, h1 = ld2quin(beta)
-
-        # Normalize norm
-        h0 = sqrt(2) * h0
-        h1 = sqrt(2) * h1
-
-        # Synthesis filters
-        if str.lower(type[0]) == 'r':
-            f0 = modulate2(h1, 'b')
-            f1 = modulate2(h0, 'b')
-            h0 = f0
-            h1 = f1
-
-        return h0, h1
-
-    def filterPkvaHalf6():  # Filters from the ladder structure
-
-        # Allpass filter for the ladder structure network
-        beta = ldfilterhalf(6)
-
-        # Analysis filters
-        h0, h1 = ld2quin(beta)
-
-        # Normalize norm
-        h0 = sqrt(2) * h0
-        h1 = sqrt(2) * h1
-
-        # Synthesis filters
-        if srtring.lower(type[0]) == 'r':
-            f0 = modulate2(h1, 'b')
-            f1 = modulate2(h0, 'b')
-            h0 = f0
-            h1 = f1
-
-        return h0, h1
-
-    def filterPkvaHalf8():  # Filters from the ladder structure
-        # Allpass filter for the ladder structure network
-        beta = ldfilterhalf(8)
-
-        # Analysis filters
-        h0, h1 = ld2quin(beta)
-
-        # Normalize norm
-        h0 = sqrt(2) * h0
-        h1 = sqrt(2) * h1
-
-        # Synthesis filters
-        if str.lower(type[0]) == 'r':
-            f0 = modulate2(h1, 'b')
-            f1 = modulate2(h0, 'b')
-            h0 = f0
-            h1 = f1
 
         return h0, h1
 
@@ -1326,9 +1273,6 @@ def dfilters(fname, type):
 
         return h0, h1
 
-    def errhandler():
-        print('Unrecognized ladder structure filter name')
-
     switch = {'haar': filterHaar,
               'vk': filterVk,
               'ko': filterKo,
@@ -1337,10 +1281,14 @@ def dfilters(fname, type):
               'sk': filterSk,
               'cd': filter79,
               '7-9': filter79,
+              '9-7': filter79,
+              '9/7': filter79,
+              '5-3': filter53,
+              '5/3': filter53,
               'pkva': filterPkva,
-              'pkva-half4': filterPkvaHalf4,
-              'pkva-half6': filterPkvaHalf6,
-              'pkva-half8': filterPkvaHalf8,
+              'pkva6': filterPkva,
+              'pkva8': filterPkva,
+              'pkva12': filterPkva,
               'oqf_362': filterOqf,
               'test': filterTest,
               'dvmlp': filterDvmlp,
@@ -1353,7 +1301,9 @@ def dfilters(fname, type):
               'dmaxflat6': filterDmaxflat6,
               'dmaxflat7': filterDmaxflat7}
 
-    return switch.get(fname, errhandler)()
+    if fname not in switch:
+        raise ValueError('Unrecognized directional filter name: %r' % (fname,))
+    return switch[fname]()
 
 
 def ldfilter(fname):
@@ -1375,13 +1325,13 @@ def ldfilter(fname):
         v = np.array([[0.6261, -0.1794, 0.0688]])
         return v
 
-    def errhandler():
-        print('Unrecognized ladder structure filter name')
     switch = {'pkva': pkva12,
               'pkva12': pkva12,
               'pkva8': pkva8,
               'pkva6': pkva6}
-    v = switch.get(fname, errhandler)()
+    if fname not in switch:
+        raise ValueError('Unrecognized ladder structure filter name: %r' % (fname,))
+    v = switch[fname]()
     # Symmetric impulse response
     f = np.c_[v[:, ::-1], v]
     return f
@@ -1467,8 +1417,6 @@ def dmaxflat(N, d):
         h[8, 8] = d
         return h
 
-    def errhandler():
-        print('Invalid argument type')
     switch = {1: dmaxflat1,
               2: dmaxflat2,
               3: dmaxflat3,
@@ -1477,7 +1425,9 @@ def dmaxflat(N, d):
               6: dmaxflat6,
               7: dmaxflat7}
 
-    return switch.get(N, errhandler)()
+    if N not in switch:
+        raise ValueError('dmaxflat order N must be in 1..7, got %r' % (N,))
+    return switch[N]()
 
 # Multidimensional filtering (used in building block filter banks)
 
@@ -1510,11 +1460,10 @@ def sefilter2(x, f1, f2, extmod='per', shift=np.array([[0], [0]])):
 
     # Periodized extension
     lf1 = (np.size(f1) - 1) / 2.0
-    lf2 = (np.size(f1) - 1) / 2.0
+    lf2 = (np.size(f2) - 1) / 2.0
 
     y = extend2(x, np.floor(lf1) + shift[0, 0], np.ceil(lf1) - shift[0, 0],
                 np.floor(lf2) + shift[1, 0], np.ceil(lf2) - shift[1, 0], extmod)
-    # pdb.set_trace()
     # Seperable filter
     y = signal.convolve(y, f1, 'valid')
     y = signal.convolve(y, f2.T, 'valid')
@@ -2513,17 +2462,17 @@ def ld2quin(beta):
     ladder network structure
     Ref: Phong et al., IEEE Trans. on SP, March 1995"""
 
-    if beta.ndim > 1:
-        print('The input must be an 1-D filter')
+    # MATLAB: error if neither dimension of beta is 1 (i.e. not a vector)
+    if beta.ndim == 2 and all(s != 1 for s in beta.shape):
+        raise ValueError('The input must be an 1-D filter')
 
     # Make sure beta is a row vector
-    beta = beta.flatten(1)[:, np.newaxis].T
+    beta = beta.flatten('F')[:, np.newaxis].T
 
     lf = np.size(beta)
-    n = lf / 2.0
-
-    if n != np.floor(n):
-        print('The input allpass filter must be even length')
+    if lf % 2 != 0:
+        raise ValueError('The input allpass filter must be even length')
+    n = lf // 2
 
     # beta(z1) * beta(z2)
     sp = beta.T * beta
@@ -2532,14 +2481,14 @@ def ld2quin(beta):
     # Obtained by quincunx upsampling type 1 (with zero padded)
     h = qupz(sp, 1)
 
-    # Lowpass quincunx filter
+    # Lowpass quincunx filter (MATLAB h0(2*n, 2*n) is 1-based -> 0-based 2*n - 1)
     h0 = h.copy()
-    h0[2 * n, 2 * n] = h0[2 * n, 2 * n] + 1
+    h0[2 * n - 1, 2 * n - 1] = h0[2 * n - 1, 2 * n - 1] + 1
     h0 = h0 / 2.0
 
-    # Highpass quincunx filter
+    # Highpass quincunx filter (MATLAB h1(4*n-1, 4*n-1) -> 0-based 4*n - 2)
     h1 = -signal.convolve(h, h0)
-    h1[4 * n - 1, 4 * n - 1] = h1[4 * n - 1, 4 * n - 1] + 1
+    h1[4 * n - 2, 4 * n - 2] = h1[4 * n - 2, 4 * n - 2] + 1
 
     return h0, h1
 
@@ -2550,7 +2499,9 @@ def mctrans(b, t):
     corresponds to the 1-D FIR filter B using the transform T."""
 
     # Convert the 1-D filter b to SUM_n a(n) cos(wn) form
-    n = (np.size(b) - 1) / 2.0
+    if (np.size(b) - 1) % 2 != 0:
+        raise ValueError('mctrans expects an odd-length 1-D filter')
+    n = (np.size(b) - 1) // 2
     b = rot90(fftshift(rot90(b, 2)), 2)  # inverse fftshift
 
     a = np.c_[b[:, 0], 2 * b[:, 1:n + 1]]
@@ -2619,8 +2570,8 @@ def modulate2(x, type, center=np.array([[0, 0]])):
 
 def reverse2(x):
     """ REVERSE2   Reverse order of elements in 2-d signal"""
-    if x.ndim < 2:
-        print('Input must be a 2-D matrix.')
+    if x.ndim != 2:
+        raise ValueError('Input must be a 2-D matrix.')
     return x[::-1, ::-1]
 
 # Support fucntions to avoid visual distortion (used in DFB)
@@ -2643,7 +2594,7 @@ def backsamp(y):
     n = int(log2(len(y)))
 
     if (n != round(n)) or (n < 1):
-        print('Input must be a cell vector of dyadic length')
+        raise ValueError('Input must be a cell vector of dyadic length')
     if n == 1:
         # One level, the decomposition filterbank shoud be Q1r
         # Undo the last resampling (Q1r = R1 * D0 * R2)
@@ -2682,7 +2633,7 @@ def rebacksamp(y):
     n = int(log2(len(y)))
 
     if (n != round(n)) or (n < 1):
-        print('Input must be a cell vector of dyadic length')
+        raise ValueError('Input must be a cell vector of dyadic length')
     if n == 1:
         # One level, the reconstruction filterbank shoud be Q1r
         # Redo the first resampling (Q1r = R1 * D0 * R2)
@@ -2778,7 +2729,7 @@ def computescale(subband_dfb, ratio, start, end, mode):
    See also:     SHOWPDFB"""
 
     if not isinstance(subband_dfb, list):
-        print('Error in computescale.py! The first input must be a cell vector')
+        raise TypeError('computescale: the first input must be a list')
 
     # Display ratio
     if ratio is None:
@@ -2811,114 +2762,76 @@ def computescale(subband_dfb, ratio, start, end, mode):
               'Its default value is "abs"!')
         mode = 'abs'
 
-    # Initialization
-    sum = 0
-    mean = 0
+    # Initialization (use distinct names to avoid shadowing builtin sum/mean)
+    sum_ = 0.0
+    mean_ = 0.0
     real_min = 1.0e14
     real_max = -1.0e14
     abs_min = 1.0e14
     abs_max = -1.0e14
-    abs_sum = 0
+    abs_sum = 0.0
     count = 0
-    scales = np.zeros((1, 2))
+    scales = np.zeros(2)
 
     if mode == 'real':  # Use the real coefficients
         # Compute the mean of all coefficients
         for i in range(start, end):
             if isinstance(subband_dfb[i], list):
-                m = len(subband_dfb[i])
-                for j in range(m):
-
-                    subband_min = subband_dfb[i][j].min()
-                    if subband_min < real_min:
-                        real_min = subband_min
-
-                    subband_max = subband_dfb[i][j].max()
-                    if subband_max > real_max:
-                        real_max = subband_max
-
-                    sum = sum + np.sum(subband_dfb[i][j])
-                    count = count + subband_dfb[i][j].size
+                for j in range(len(subband_dfb[i])):
+                    real_min = min(real_min, subband_dfb[i][j].min())
+                    real_max = max(real_max, subband_dfb[i][j].max())
+                    sum_ += np.sum(subband_dfb[i][j])
+                    count += subband_dfb[i][j].size
             else:
-                subband_min = subband_dfb[i].min()
-                if subband_min < real_min:
-                    real_min = subband_min
+                real_min = min(real_min, subband_dfb[i].min())
+                real_max = max(real_max, subband_dfb[i].max())
+                sum_ += np.sum(subband_dfb[i])
+                count += subband_dfb[i].size
 
-                subband_max = subband_dfb[i].max()
-                if subband_max > real_max:
-                    real_max = subband_max
+        if count < 2 or abs(sum_) < 1e-10:
+            raise ValueError('computescale: no data in this unit')
+        mean_ = sum_ / count
 
-                sum = sum + np.sum(subband_dfb[i])
-                count = count + subband_dfb[i].size
-
-        if count < 2 or abs(sum) < 1e-10:
-            print('Error in computescale.m! No data in this unit!')
-        else:
-            mean = sum / count
-
-        # Compute the STD.
-        sum = 0
+        # Compute the variance
+        sq = 0.0
         for i in range(start, end):
             if isinstance(subband_dfb[i], list):
-                m = len(subband_dfb[i])
-                for j in range(m):
-                    sum = sum + sum((subband_dfb[i][j] - mean)**2)
+                for j in range(len(subband_dfb[i])):
+                    sq += np.sum((subband_dfb[i][j] - mean_) ** 2)
             else:
-                sum = sum + sum((subband_dfb[i] - mean)**2)
+                sq += np.sum((subband_dfb[i] - mean_) ** 2)
 
-        std = math.sqrt(sum / (count - 1))
-
-        scales[0] = max(mean - ratio * std, real_min)
-        scales[1] = min(mean + ratio * std, real_max)
+        std = np.sqrt(sq / (count - 1))
+        scales[0] = max(mean_ - ratio * std, real_min)
+        scales[1] = min(mean_ + ratio * std, real_max)
 
     else:  # Use the absolute coefficients
-        # Compute the mean of absolute values
         for i in range(start, end):
             if isinstance(subband_dfb[i], list):
-                m = len(subband_dfb[i])
-                for j in range(m):
-
-                    subband_min = abs(subband_dfb[i][j]).min()
-                    if subband_min < abs_min:
-                        abs_min = subband_min
-
-                    subband_max = abs(subband_dfb[i][j]).max()
-                    if subband_max > abs_max:
-                        abs_max = subband_max
-
-                abs_sum = abs_sum + np.sum(abs(subband_dfb[i][j]))
-                count = count + subband_dfb[i][j].size
+                for j in range(len(subband_dfb[i])):
+                    abs_min = min(abs_min, abs(subband_dfb[i][j]).min())
+                    abs_max = max(abs_max, abs(subband_dfb[i][j]).max())
+                    abs_sum += np.sum(abs(subband_dfb[i][j]))
+                    count += subband_dfb[i][j].size
             else:
-                subband_min = abs(subband_dfb[i]).min()
-                if subband_min < abs_min:
-                    abs_min = subband_min
-
-                subband_max = abs(subband_dfb[i]).max()
-
-                if subband_max > abs_max:
-                    abs_max = subband_max
-
-                abs_sum = abs_sum + np.sum(abs(subband_dfb[i]))
-                count = count + subband_dfb[i].size
+                abs_min = min(abs_min, abs(subband_dfb[i]).min())
+                abs_max = max(abs_max, abs(subband_dfb[i]).max())
+                abs_sum += np.sum(abs(subband_dfb[i]))
+                count += subband_dfb[i].size
 
         if count < 2 or abs_sum < 1e-10:
-            print('Error in computescale! No data in this unit!')
-        else:
-            abs_mean = abs_sum / count
+            raise ValueError('computescale: no data in this unit')
+        abs_mean = abs_sum / count
 
-        # Compute the std of absolute values
-        sum = 0
+        sq = 0.0
         for i in range(start, end):
             if isinstance(subband_dfb[i], list):
-                m = len(subband_dfb[i])
-                for j in range(m):
-                    sum = sum + np.sum((abs(subband_dfb[i][j]) - abs_mean)**2)
+                for j in range(len(subband_dfb[i])):
+                    sq += np.sum((abs(subband_dfb[i][j]) - abs_mean) ** 2)
             else:
-                sum = sum + np.sum((abs(subband_dfb[i]) - abs_mean)**2)
+                sq += np.sum((abs(subband_dfb[i]) - abs_mean) ** 2)
 
-        std = math.sqrt(sum / (count - 1))
-
-        # Compute the scale values
+        std = np.sqrt(sq / (count - 1))
         scales[0] = max(abs_mean - ratio * std, abs_min)
         scales[1] = min(abs_mean + ratio * std, abs_max)
 
