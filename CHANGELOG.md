@@ -8,6 +8,10 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.2.0] - 2026-05-28
 
+> **Note:** v0.0.1 is the historical tag on the `master` branch capturing
+> the original Python 2 source with minimal Python 3 compatibility
+> patches. The audited Python 3 port begins with v0.2.0 on `develop`.
+
 First release of the audited Python 3 port. Validates bit-exact
 equivalence to Minh Do and Duncan Po's MATLAB Contourlet Toolbox v2.0.
 
@@ -85,3 +89,4 @@ equivalence to Minh Do and Duncan Po's MATLAB Contourlet Toolbox v2.0.
 
 [Unreleased]: https://github.com/itsmazay/pycontourlet/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/itsmazay/pycontourlet/releases/tag/v0.2.0
+[0.0.1]: https://github.com/itsmazay/pycontourlet/releases/tag/v0.0.1
