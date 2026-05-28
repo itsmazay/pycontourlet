@@ -1,10 +1,14 @@
-# MATLAB → Python audit
+# MATLAB → Python audit (bottom-up)
 
 Function-by-function comparison between Minh Do's MATLAB Contourlet
 Toolbox (`~/contourlet_toolbox/*.m`) and the Python port at
 `pycontourlet/PyContourlet.py`. Ordering is **bottom-up by dependency**:
 functions that nothing else depends on come first, so by the time we
 review a higher-level routine its primitives have already been validated.
+
+For the same content reorganized by the upstream MATLAB `Contents.m`
+grouping (Demos → Main → Filters → Utilities → Laplacian → ...), see
+[`AUDIT_CONTENTS.md`](AUDIT_CONTENTS.md).
 
 For every function the audit records:
 
