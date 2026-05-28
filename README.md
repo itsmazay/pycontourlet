@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/itsmazay/pycontourlet/actions/workflows/ci.yml/badge.svg)](https://github.com/itsmazay/pycontourlet/actions/workflows/ci.yml)
 
-Python 3 port of Minh Do and Duncan Po's MATLAB **Contourlet Toolbox**
-(v2.0, November 2003). The contourlet transform is a multiscale,
+Python 3 port of the **Contourlet Transform**, originally implemented
+by Minh Do and Duncan Po as the MATLAB Contourlet Toolbox v2.0
+(November 2003). The contourlet transform is a multiscale,
 multi-direction image representation built from a Laplacian pyramid plus
 a directional filter bank.
 
@@ -13,9 +14,17 @@ validated against):
 
 ## Install
 
+We recommend installing into a virtual environment so the dependencies
+don't clash with anything else on your system:
+
 ```sh
+python3 -m venv .venv
+source .venv/bin/activate    # on Windows: .venv\Scripts\activate
 pip install -e .
 ```
+
+Run `deactivate` to leave the venv. To recreate it later, delete
+`.venv/` and re-run the three commands above.
 
 ## Quick start
 

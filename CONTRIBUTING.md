@@ -4,18 +4,47 @@ Thanks for considering a contribution! This doc covers the dev setup,
 the test suite, and how to validate the port against the MATLAB
 toolbox.
 
-## Quick start
+## Development environment
+
+Use a virtual environment so the project's dependencies stay isolated
+from the rest of your system Python. We use the standard library
+[`venv`](https://docs.python.org/3/library/venv.html) — no extra tools
+required.
 
 ```sh
 git clone https://github.com/itsmazay/pycontourlet.git
 cd pycontourlet
+python3 -m venv .venv
+source .venv/bin/activate    # on Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -e .[dev]
+```
+
+Day-to-day: `source .venv/bin/activate` when you start working,
+`deactivate` when you're done. The `.venv/` directory is git-ignored.
+
+To start fresh (e.g. after a Python upgrade):
+
+```sh
+deactivate                   # if currently active
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+```
+
+`pyproject.toml` declares `requires-python = ">=3.9"`. CI runs against
+3.9, 3.10, 3.11, and 3.12.
+
+## Running the test suite
+
+```sh
 pytest tests/
 ```
 
 That should produce 94 passing smoke tests. The 234 Octave-parity
 tests are skipped automatically if `tests/fixtures/` is empty (the
-default for fresh clones).
+default for fresh clones). See the next section to enable them.
 
 ## Running the demo
 
