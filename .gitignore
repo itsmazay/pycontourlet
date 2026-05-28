@@ -105,3 +105,6 @@ venv.bak/
 
 # mac files
 .DS_Store
+
+# Octave-generated reference fixtures (regenerate via tests/octave/generate_fixtures.m)
+tests/fixtures/

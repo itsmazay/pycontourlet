@@ -1,8 +1,11 @@
 """PyContourlet -- Python 3 port of the MATLAB Contourlet Toolbox.
 
 Public API mirrors the original MATLAB function names from Minh Do and
-Duncan Po's contourlet toolbox. See the upstream README for the math; the
-short summary is:
+Duncan Po's Contourlet Toolbox (v2.0, November 2003):
+
+    https://minhdo.ece.illinois.edu/software/contourlet_toolbox.tar
+
+Short summary of the public API:
 
 - pdfbdec / pdfbrec   -- top-level pyramidal directional filter bank
 - pdfb2vec / vec2pdfb -- coefficient (de)serialization for denoising / NLA
