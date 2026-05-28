@@ -11,9 +11,17 @@ Run interactively:
 
     python -m pycontourlet [--image PATH] [--no-show] [--out-dir PATH]
 
-By default uses the bundled barbara.png and shows three plots
-(input/coefficients/reconstruction). `--no-show` saves PNGs without opening
-display windows -- useful for CI / headless environments.
+By default uses the bundled barbara.png. The default output is three PNGs
+saved to ``--out-dir`` (no GUI):
+
+  reconstruction.png    -- input vs perfect reconstruction
+  coefficients.png      -- the full contourlet coefficient pyramid
+                           (showpdfb 'auto2' mode, bit-exact-validated
+                           against the MATLAB toolbox)
+  nla_comparison.png    -- input vs nonlinear-approximation reconstructions
+                           at 5%, 2.5%, and 1% coefficient retention
+
+Pass ``--show`` to open interactive matplotlib windows instead.
 """
 
 from __future__ import annotations
@@ -32,7 +40,7 @@ import pycontourlet as pc
 DEFAULT_IMAGE = "barbara.png"
 DEFAULT_PFILTER = "9-7"
 DEFAULT_DFILTER = "pkva"
-DEFAULT_NLEVELS = (0, 0, 4, 5)  # mirrors nlademo.m: coarse-to-fine
+DEFAULT_NLEVELS = (2, 3, 4)  # coarse-to-fine; chosen so each panel is square-ish
 
 NLA_FRACTIONS = (0.05, 0.025, 0.01)  # 5%, 2.5%, 1% of coefficients
 
@@ -181,6 +189,25 @@ def run_demo(
     axes[1].axis("off")
     fig.tight_layout()
     _save_or_show(fig, out_dir / "reconstruction.png" if out_dir else None, show)
+
+    # Coefficient pyramid: bit-exact MATLAB showpdfb output. Uses 'auto3'
+    # scale mode (separate scales for lowpass / wavelet / contourlet bands)
+    # so highpass coefficients are visible without crushing the lowpass.
+    # The vertically-stacked tile layout matches the MATLAB toolbox
+    # exactly -- see tests/test_octave_parity.py for the parity tests.
+    coef_img = pc.showpdfb(coeffs, scaleMode="auto3")
+    h, w = coef_img.shape
+    fig_w = 8.0
+    fig_h = fig_w * h / w + 0.6
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    # MATLAB's image() indexes a 256-entry colormap; values above 256 clip
+    # to the brightest color. Match that behavior so coefficients with
+    # nAdjustHighpass headroom don't make the rest of the image look dark.
+    ax.imshow(coef_img, cmap="gray", vmin=1, vmax=256)
+    ax.set_title("Contourlet coefficients (showpdfb 'auto3')", fontsize=12)
+    ax.axis("off")
+    fig.tight_layout()
+    _save_or_show(fig, out_dir / "coefficients.png" if out_dir else None, show)
 
     fig, axes = plt.subplots(1, len(nla_fractions) + 1, figsize=(4 * (len(nla_fractions) + 1), 4))
     axes[0].imshow(image, cmap="gray", vmin=0, vmax=1)
