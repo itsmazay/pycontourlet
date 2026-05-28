@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycontourlet"
+version = "0.2.0"
+description = "Python 3 port of the MATLAB Contourlet Toolbox by Minh Do and Duncan Po"
+readme = "README.md"
+license = { text = "GPL-2.0-only" }
+authors = [
+    { name = "Mazay Jiménez Salinas", email = "mazay.jimenez@gmail.com" },
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+]
+
+[project.scripts]
+pycontourlet-demo = "pycontourlet.demo:main"
+
+[tool.setuptools]
+packages = ["pycontourlet"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+pycontourlet = ["data/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

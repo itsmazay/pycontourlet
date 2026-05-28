@@ -6,15 +6,10 @@ coefficient roundtrips, expected shapes). Numerical equivalence to the
 MATLAB toolbox should be added separately using Octave-generated fixtures.
 """
 
-import os
-import sys
-
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.pardir, "pycontourlet"))
-
-from PyContourlet import (  # noqa: E402
+from pycontourlet import (
     SNR,
     backsamp,
     dfbdec,
@@ -41,9 +36,9 @@ from PyContourlet import (  # noqa: E402
     pfilters,
     ppdec,
     pprec,
+    qdown,
     qpdec,
     qprec,
-    qdown,
     qup,
     qupz,
     rebacksamp,
